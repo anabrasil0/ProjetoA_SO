@@ -55,7 +55,7 @@ Kernel::Kernel(Config config) {
         // requisito 3.3
         Task* novaTask = new Task(
             tData.id,
-            tData.cor,
+            //tData.cor,
             tData.ingresso,
             tData.duracao,
             tData.prioridade
@@ -99,28 +99,16 @@ void Kernel::proximoTick() {
 	// Verificação da chegada de novas tarefas no tick atual
     verificarChegadaTarefas();
 
-    // 2. Processamento nas CPUs
+    // Escalonamento (A tomada de decisão)
+    escalonador->agendar(prontos, cpus, relogioGlobal);
+
+    // Processamento nas CPUs
     for (i = 0; i < cpus.size(); i++) {
         if (cpus[i].estaOcupada()) {
             Task* task_atual = cpus[i].getTask();
-
-            // Registra o evento no histórico da tarefa
-            task_atual->adicionarEvento(relogioGlobal, "Executando", i);
-
-            // Reduz o tempo restante
-            task_atual->tempo_restante--;
-
-            // 3. Verificando se terminou
-            if (task_atual->tempo_restante == 0) {
-                task_atual->estado = "Finalizada";
-                cpus[i].liberar();
-            }
+			cpus[i].executarTick();
         }
     }
-
-    // 4. Escalonamento (A tomada de decisão)
-    // O escalonador olha a fila e decide quem vai para as CPUs vazias
-    escalonador->agendar(prontos, cpus, relogioGlobal);
 
     // Avanço do tempo
     relogioGlobal++;
@@ -170,7 +158,7 @@ void Kernel::retroceder() {
 
     prontos.clear();
     for (Task* t : all_tasks) {
-        if (t->estado == "Pronta") {
+        if (t->estado == PRONTA) {
             prontos.push_back(t);
         }
     }
@@ -182,10 +170,7 @@ void Kernel::retroceder() {
 void Kernel::verificarChegadaTarefas() {
     for (size_t i = 0; i < all_tasks.size(); i++) {
         // Se a tarefa chega exatamente agora e ainda não foi admitida
-        if (all_tasks[i]->ingresso == relogio_global && all_tasks[i]->estado == "Criada") {
-
-            // Muda o estado para que o escalonador saiba que ela pode rodar
-            all_tasks[i]->estado = "Pronta";
+        if (all_tasks[i]->ingresso == relogio_global && all_tasks[i]->estado == PRONTA) {
 
             // Adiciona o ponteiro da tarefa na fila de prontos
             prontos.push_back(all_tasks[i]);
@@ -209,9 +194,9 @@ void Kernel::salvarEstado() {
     // Salva o estado dinâmico de cada tarefa (TCB)
     for (size_t i = 0; i < all_tasks.size(); i++) {
         Snapshot::TaskState tState;
-        tState.id = all_tasks[i]->id;
-        tState.tempoRestante = all_tasks[i]->tempoRestante;
-        tState.estado = all_tasks[i]->estado;
+        tState.id = all_tasks[i]->getId();
+        tState.tempoRestante = all_tasks[i]->getTempoRestante();
+        tState.estado = all_tasks[i]->getEstado();
 
         snap.estadoTarefas.push_back(tState);
     }
@@ -238,7 +223,7 @@ bool Kernel::simulacaoConcluida() const {
     // Verifica no TCB se todas as tarefas já chegaram ao estado "Finalizada"
     // Isso garante que tarefas que ainda nem ingressaram no sistema sejam consideradas
     for (const Task* t : all_tasks) {
-        if (t->estado != "Finalizada") {
+        if (t->estado != FINALIZADA) {
             return false;
         }
     }
@@ -282,7 +267,7 @@ void Kernel::imprimirStatus() {
     // Resumo Geral de Tarefas
     int concluido = 0;
     for (Task* t : all_tasks) {
-        if (t->estado == "Finalizada") concluido++;
+        if (t->estado == FINALIZADA) concluido++;
     }
     std::cout << "\n Progresso: " << concluido << "/" << all_tasks.size() << " tarefas concluidas." << std::endl;
     std::cout << "========================================\n" << std::endl;

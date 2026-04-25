@@ -14,10 +14,11 @@ struct Snapshot {
     int relogio;
     std::vector<CPU> estadoCPUs;
 
+	enum Estado {PRONTA, EXECUTANDO, FINALIZADA };
     struct TaskState {
         int id;
         int tempoRestante;
-        std::string estado;
+		Estado estado;
     };
     std::vector<TaskState> estadoTarefas;
 };
