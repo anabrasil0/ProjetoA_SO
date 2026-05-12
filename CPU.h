@@ -1,20 +1,18 @@
 #pragma once
-#include <stdio.h>
 #include "Task.h"
 
-//Classe CPU, representa um núcleo de processamento
+// Classe CPU â€” representa um nÃºcleo de processamento do sistema simulado
 class CPU {
 private:
-	Task* tarefaAtual; //ponteiro para a tarefa atualmente em execução (se nulo, a CPU está ociosa)
-	int tempoOcioso; //contador de tempo que a cpu ficou sem uso 
+    Task* tarefa_atual; // ponteiro para a tarefa em execuÃ§Ã£o (nullptr = ociosa)
+    int   tempo_ocioso; // contador de ticks que a CPU ficou sem uso
 
 public:
-	CPU(); // função construtora para criar a CPU
-	void executarTick();
-	bool estaOcupada() const;
-	Task* getTarefaAtual() const;
-	void setTarefaAtual(Task* novaTarefa);
-	int getTempoOcioso() const;
+    CPU();
+
+    void   executar_tick();             // executa um tick na tarefa atual
+    bool   esta_ocupada()      const;   // retorna true se hÃ¡ tarefa em execuÃ§Ã£o
+    Task*  get_tarefa_atual()  const;   // retorna ponteiro para a tarefa atual
+    void   set_tarefa_atual(Task* nova_tarefa);
+    int    get_tempo_ocioso()  const;
 };
-//a classe cpu se conecta com a task de tal forma que: se tem tarefa -> CPU executa
-//senão -> CPU fica ociosa

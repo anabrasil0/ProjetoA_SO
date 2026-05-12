@@ -2,163 +2,153 @@
 #include "SRTFScheduler.h"
 #include "PrioPScheduler.h"
 #include <iostream>
+#include <algorithm>
+#include <cctype>
 
-#include <algorithm> // Necessário para o std::transform
-#include <cctype>    // Necessário para o std::toupper
+// ============================================================
+// Construtor
+// ============================================================
+Kernel::Kernel(Config& config) {
 
-// Método Construtor: Inicializa o sistema com base no arquivo de configuração
-Kernel::Kernel(Config config) {
-    
-
-    // Normalização do Algoritmo (Requisito 3.3.2)
-
-	// Obtém o algoritmo do arquivo de configuração
+    // Normaliza o nome do algoritmo para maiúsculas (Requisito 3.3.2)
     std::string algoritmo = config.getAlgoritmo();
-
-    // Transforma toda a string para MAIÚSCULAS para comparação segura
     std::transform(algoritmo.begin(), algoritmo.end(), algoritmo.begin(),
         [](unsigned char c) { return std::toupper(c); });
 
-    // 2. Decisão do Escalonador com a string normalizada
+    // Instancia o escalonador correto (polimorfismo — Requisito 4.2)
     if (algoritmo == "SRTF") {
         escalonador = new SRTFScheduler();
-    }
+    } 
     else if (algoritmo == "PRIOP") {
         escalonador = new PrioPScheduler();
-    }
+    } 
     else {
-        // Caso venha algo inesperado, podemos definir um padrão ou lançar erro
         std::cout << "Aviso: Algoritmo desconhecido. Usando PRIOP por padrao." << std::endl;
         escalonador = new PrioPScheduler();
     }
 
+    relogio_global = 0;
+    quantum        = config.getQuantum();
+    qtde_cpus      = config.getCPUs();
 
-    // Inicialização básica de variáveis de controle
-    relogioGlobal = 0;
-    quantum = config.getQuantum(); 
-    qtde_cpus = config.getCPUs(); 
-
-   // Inicialização da variável contadora que será utilizada no método
-    int i;
-
-    // Criação das CPUs (Requisito 1.2)
-    for (i = 0; i < config.getQtdeCPUs(); i++) {
-        // Adiciona uma nova CPU ao vetor (ID da CPU começa em 0)
-        cpus.push_back(CPU(i)); // i é o ID da CPU
+    // Cria as CPUs (Requisito 1.2)
+    for (int i = 0; i < qtde_cpus; i++) {
+        cpus.push_back(CPU());
     }
 
-    // Transforma dados brutos em objetos Task (Requisito 1.3)
-    // Criação do TCB (Task Control Block) para cada tarefa
-    for (i = 0; i < config.getTasksData().size(); i++) {
-        const auto& tData = config.getTasksData()[i];
-
-        // requisito 3.3
-        Task* novaTask = new Task(
-            tData.id,
-            //tData.cor,
-            tData.ingresso,
-            tData.duracao,
-            tData.prioridade
+    // Cria os TCBs a partir dos dados brutos (Requisito 1.3)
+    for (const auto& t_data : config.getTasksData()) {
+        Task* nova_task = new Task(
+            t_data.id,
+            t_data.ingresso,
+            t_data.duracao,
+            t_data.prioridade
         );
-
-        // Adição à lista mestre do Kernel
-        all_tasks.push_back(novaTask);
+        all_tasks.push_back(nova_task);
     }
 
     std::cout << "Kernel inicializado com " << qtde_cpus
-        << " CPUs e algoritmo " << config.getAlgoritmo() << std::endl;
-
+              << " CPUs e algoritmo " << config.getAlgoritmo() << std::endl;
 }
 
-// Método Destrutor: Limpa a memória (deleta Tasks e Escalonador)
+// ============================================================
+// Destrutor
+// ============================================================
 Kernel::~Kernel() {
-
-    // Deleta todas as tarefas armazenadas no TCB 
-    for (int i = 0; i < all_tasks.size(); i++) {
-        Task* t = all_tasks[i];
-        delete t;                    
+    for (Task* t : all_tasks) {
+        delete t;
     }
     all_tasks.clear();
-    //  Deleta o escalonador 
+
     if (escalonador != nullptr) {
         delete escalonador;
     }
 
-    std::cout << "Memória do Kernel limpa com sucesso." << std::endl;
+    std::cout << "Memoria do Kernel limpa com sucesso." << std::endl;
 }
 
+// ============================================================
+// do_tick — PRIVADO
+// Lógica pura de um tick: chegada → escalonamento → execução → avanço.
+// Não salva snapshot; isso é responsabilidade de step_forward.
+// Separar aqui permite que run_complete() chame do_tick() diretamente,
+// sem o custo de salvar estado a cada tick.
+// ============================================================
+void Kernel::do_tick() {
 
+    // 1. Admite tarefas que chegam neste tick na fila de prontos
+    verificar_chegada_tarefas();
 
-// Executa um passo de tempo, (tick) do relógio global
-void Kernel::proximoTick() {
-   
-    // Salva como as coisas estão AGORA 
-    // antes de começarmos a mudar os valores para o próximo segundo.
-    salvarEstado();
+    // 2. Escalonador decide qual tarefa vai para cada CPU (Requisito 4)
+    escalonador->agendar(prontos, cpus, relogio_global);
 
-	// Verificação da chegada de novas tarefas no tick atual
-    verificarChegadaTarefas();
-
-    // Escalonamento (A tomada de decisão)
-    escalonador->agendar(prontos, cpus, relogioGlobal);
-
-    // Processamento nas CPUs
-    for (i = 0; i < cpus.size(); i++) {
-        if (cpus[i].estaOcupada()) {
-            Task* task_atual = cpus[i].getTask();
-			cpus[i].executarTick();
-        }
+    // 3. Cada CPU executa um tick na sua tarefa atual
+    for (size_t i = 0; i < cpus.size(); i++) {
+        cpus[i].executar_tick();
     }
 
-    // Avanço do tempo
-    relogioGlobal++;
+    // 4. Remove da fila de prontos as tarefas que finalizaram
+    prontos.erase(
+        std::remove_if(prontos.begin(), prontos.end(),
+            [](Task* t) { return t->get_estado() == FINALIZADA; }),
+        prontos.end()
+    );
+
+    // 5. Avança o relógio global (Requisito 1.1)
+    relogio_global++;
 }
 
-
-void Kernel::retroceder() {
-    // Verificação de segurança: Só podemos voltar se houver 'passado'
-    if (historico.empty()) {
-        std::cout << "Aviso: Nao ha mais estados para retroceder. Inicio atingido." << std::endl;
+// ============================================================
+// step_forward — PÚBLICO (Requisito 1.5 opção a)
+// Salva o estado ANTES de avançar para permitir o retrocesso.
+// É esse método que a interface chama no modo passo-a-passo.
+// ============================================================
+void Kernel::step_forward() {
+    if (simulacao_concluida()) {
+        std::cout << "Simulacao ja concluida." << std::endl;
         return;
     }
 
-    // Recupera o último estado salvo (o topo da pilha do histórico)
+    // Snapshot tirado ANTES da mudança de estado, para que step_backward
+    // consiga restaurar o tick anterior com fidelidade.
+    salvar_estado();
+
+    do_tick();
+}
+
+// ============================================================
+// step_backward — PÚBLICO (Requisito 1.5.2)
+// Restaura o estado do tick anterior a partir do histórico.
+// ============================================================
+void Kernel::step_backward() {
+    if (historico.empty()) {
+        std::cout << "Aviso: Nao ha estados para retroceder. Inicio atingido." << std::endl;
+        return;
+    }
+
+    // Recupera e remove o topo da pilha de histórico
     Snapshot ultimo_estado = historico.back();
-    historico.pop_back(); // Remove esse estado do histórico
+    historico.pop_back();
 
-    // Restauração das variáveis globais do Kernel
-    relogio_global = ultimoEstado.relogio;
-    cpus = ultimoEstado.estadoCPUs;
+    // Restaura o relógio e as CPUs
+    relogio_global = ultimo_estado.relogio;
+    cpus           = ultimo_estado.estado_cpus;
 
-    // Restauração do estado interno de cada tarefa (TCB)
-    for (size_t i = 0; i < ultimoEstado.estadoTarefas.size(); i++) {
-        const auto& sTask = ultimoEstado.estadoTarefas[i];
-
-        // Busca da tarefa real no nosso vetor all_tasks pelo ID
+    // Restaura o estado interno de cada tarefa pelo ID
+    for (const auto& s_task : ultimo_estado.estado_tarefas) {
         for (Task* t : all_tasks) {
-            if (t->id == sTask.id) {
-                t->tempoRestante = sTask.tempoRestante;
-                t->estado = sTask.estado;
-
-                // IMPORTANTE: Limpeza do Gráfico de Gantt
-                // Se voltamos no tempo, o evento que aconteceu naquele segundo 
-                // "futuro" deve ser apagado para não sujar o gráfico.
-                if (!t->lista_eventos.empty()) {
-                    // Remove o último evento se o tempo dele for maior ou igual ao novo relógio
-                    if (t->lista_eventos.back().tempo >= relogio_global) {
-                        t->lista_eventos.pop_back();
-                    }
-                }
-                break; // Achou a tarefa, pula para a próxima do snapshot
+            if (t->get_id() == s_task.id) {
+                t->set_tempo_restante(s_task.tempo_restante);
+                t->set_estado(s_task.estado);
+                break;
             }
         }
     }
 
-    //Reconstrução da Fila de Prontos:
-
+    // Reconstrói a fila de prontos a partir do estado restaurado
     prontos.clear();
     for (Task* t : all_tasks) {
-        if (t->estado == PRONTA) {
+        if (t->get_estado() == PRONTA) {
             prontos.push_back(t);
         }
     }
@@ -166,109 +156,110 @@ void Kernel::retroceder() {
     std::cout << "Sistema retrocedido para o tempo: " << relogio_global << std::endl;
 }
 
-// Move tarefas do vetor mestre para a fila de prontos ao atingirem o tempo de ingresso
-void Kernel::verificarChegadaTarefas() {
-    for (size_t i = 0; i < all_tasks.size(); i++) {
-        // Se a tarefa chega exatamente agora e ainda não foi admitida
-        if (all_tasks[i]->ingresso == relogio_global && all_tasks[i]->estado == PRONTA) {
+// ============================================================
+// run_complete — PÚBLICO (Requisito 1.5 opção b)
+// Executa a simulação até o fim sem intervenção humana.
+// Chama do_tick() diretamente, sem salvar snapshots, pois o modo
+// completo não precisa de retrocesso (Requisito 1.5.3).
+// ============================================================
+void Kernel::run_complete() {
+    while (!simulacao_concluida()) {
+        do_tick();
+    }
+    std::cout << "Simulacao completa finalizada no tick " << relogio_global << std::endl;
+}
 
-            // Adiciona o ponteiro da tarefa na fila de prontos
-            prontos.push_back(all_tasks[i]);
-
-            // Log para depuração
-            std::cout << "[Tempo " << relogio_global << "] Tarefa " << all_tasks[i]->id << " entrou na fila." << std::endl;
+// ============================================================
+// verificar_chegada_tarefas — PRIVADO
+// Admite na fila de prontos toda tarefa cujo ingresso == tick atual.
+// ============================================================
+void Kernel::verificar_chegada_tarefas() {
+    for (Task* t : all_tasks) {
+        if (t->get_tempo_ingresso() == relogio_global && t->get_estado() == PRONTA) {
+            prontos.push_back(t);
+            std::cout << "[Tick " << relogio_global << "] Tarefa " << t->get_id()
+                      << " entrou na fila." << std::endl;
         }
     }
 }
 
-// Captura um snapshot completo do sistema antes de cada alteração para permitir a função de desfazer
-void Kernel::salvarEstado() {
+// ============================================================
+// salvar_estado — PRIVADO
+// Tira um snapshot completo do sistema (relógio + CPUs + TCBs).
+// Chamado por step_forward antes de do_tick.
+// ============================================================
+void Kernel::salvar_estado() {
     Snapshot snap;
+    snap.relogio    = relogio_global;
+    snap.estado_cpus = cpus;           // cópia por valor do vetor de CPUs
 
-    // Salva o relógio atual (antes de incrementar)
-    snap.relogio = relogioGlobal;
-
-    // Salva o estado físico das CPUs 
-    snap.estado_cpus = cpus;
-
-    // Salva o estado dinâmico de cada tarefa (TCB)
-    for (size_t i = 0; i < all_tasks.size(); i++) {
-        Snapshot::TaskState tState;
-        tState.id = all_tasks[i]->getId();
-        tState.tempoRestante = all_tasks[i]->getTempoRestante();
-        tState.estado = all_tasks[i]->getEstado();
-
-        snap.estadoTarefas.push_back(tState);
+    for (Task* t : all_tasks) {
+        Snapshot::TaskState t_state;
+        t_state.id             = t->get_id();
+        t_state.tempo_restante = t->get_tempo_restante();
+        t_state.estado         = t->get_estado();
+        snap.estado_tarefas.push_back(t_state);
     }
 
-    // Adiciona o snapshot ao histórico (pilha)
     historico.push_back(snap);
 }
 
+// ============================================================
+// simulacao_concluida — PÚBLICO
+// ============================================================
+bool Kernel::simulacao_concluida() const {
+    if (!prontos.empty()) return false;
 
-// Verifica se todas as tarefas cadastradas atingiram o estado final de execução
-bool Kernel::simulacaoConcluida() const {
-    // Se ainda existem tarefas na fila de prontos, a simulação não acabou
-    if (!prontos.empty()) {
-        return false;
+    for (const CPU& cpu : cpus) {
+        if (cpu.esta_ocupada()) return false;
     }
 
-    // Verifica se alguma CPU ainda está processando algo
-    for (const auto& cpu : cpus) {
-        if (cpu.estaOcupada()) {
-            return false;
-        }
-    }
-
-    // Verifica no TCB se todas as tarefas já chegaram ao estado "Finalizada"
-    // Isso garante que tarefas que ainda nem ingressaram no sistema sejam consideradas
     for (const Task* t : all_tasks) {
-        if (t->estado != FINALIZADA) {
-            return false;
-        }
+        if (t->get_estado() != FINALIZADA) return false;
     }
 
-    // Se passou por todos os testes, tudo foi concluído
     return true;
 }
 
-// Exibe o estado atual da simulação no console para acompanhamento
-void Kernel::imprimirStatus() {
+// ============================================================
+// imprimir_status — PÚBLICO
+// ============================================================
+void Kernel::imprimir_status() {
     std::cout << "\n========================================" << std::endl;
-    std::cout << " TEMPO ATUAL: " << relogio_global << " | ALGORITMO: " << (escalonador ? "ATIVO" : "N/A") << std::endl;
+    std::cout << " TEMPO ATUAL: " << relogio_global
+              << " | ALGORITMO: " << (escalonador ? "ATIVO" : "N/A") << std::endl;
     std::cout << "========================================" << std::endl;
 
-    // 1. Status das CPUs
     std::cout << " [CPUs]" << std::endl;
     for (size_t i = 0; i < cpus.size(); i++) {
         std::cout << "  CPU " << i << ": ";
-        if (cpus[i].estaOcupada()) {
-            Task* t = cpus[i].getTarefa();
-            std::cout << "[ID: " << t->id << "] - " << t->tempoRestante << "s restantes" << std::endl;
-        }
+        if (cpus[i].esta_ocupada()) {
+            Task* t = cpus[i].get_tarefa_atual();
+            std::cout << "[ID: " << t->get_id() << "] - "
+                      << t->get_tempo_restante() << "s restantes" << std::endl;
+        } 
         else {
             std::cout << "IDLE (Ociosa)" << std::endl;
         }
     }
 
-    // Status da Fila de Prontos
     std::cout << "\n [FILA DE PRONTOS]" << std::endl;
     if (prontos.empty()) {
         std::cout << "  (Vazia)" << std::endl;
-    }
+    } 
     else {
         std::cout << "  ";
         for (Task* t : prontos) {
-            std::cout << "T" << t->id << " ";
+            std::cout << "T" << t->get_id() << " ";
         }
         std::cout << std::endl;
     }
 
-    // Resumo Geral de Tarefas
     int concluido = 0;
     for (Task* t : all_tasks) {
-        if (t->estado == FINALIZADA) concluido++;
+        if (t->get_estado() == FINALIZADA) concluido++;
     }
-    std::cout << "\n Progresso: " << concluido << "/" << all_tasks.size() << " tarefas concluidas." << std::endl;
+    std::cout << "\n Progresso: " << concluido << "/" << all_tasks.size()
+              << " tarefas concluidas." << std::endl;
     std::cout << "========================================\n" << std::endl;
 }

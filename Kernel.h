@@ -4,70 +4,58 @@
 #include <string>
 
 #include "Config.h"
-#include "Task.h"   // Classe que representa o TCB
-#include "CPU.h"    // Classe que representa o processador
-#include "Scheduler.h" // Interface para SRTF e PRIOP
+#include "Task.h"
+#include "CPU.h"
+#include "Scheduler.h"
 
-// Struct para Retroceder ou Undo (requisito 1.5.2)
+// Snapshot — foto completa do sistema em um tick, usada para retroceder (Requisito 1.5.2)
 struct Snapshot {
     int relogio;
-    std::vector<CPU> estadoCPUs;
+    std::vector<CPU> estado_cpus;
 
-	enum Estado {PRONTA, EXECUTANDO, FINALIZADA };
     struct TaskState {
-        int id;
-        int tempoRestante;
-		Estado estado;
+        int    id;
+        int    tempo_restante;
+        Estado estado;
     };
-    std::vector<TaskState> estadoTarefas;
+    std::vector<TaskState> estado_tarefas;
 };
 
 class Kernel {
 private:
+    int relogio_global;         // contador de ticks do sistema (Requisito 1.1)
+    int quantum;                // período máximo de execução por tarefa
+    int qtde_cpus;              // quantidade de processadores
 
-    int relogio_global;                // Contador de ticks do sistema 
-    int quantum;                      // Período máximo de execução por tarefa 
-    int qtde_cpus;                    // Quantidade de processadores 
+    std::vector<CPU>   cpus;        // lista de processadores simulados
+    std::vector<Task*> all_tasks;   // todas as tarefas carregadas do arquivo (TCBs)
+    std::vector<Task*> prontos;     // tarefas aguardando execução
 
-    // Estruturas de dados (Vetores)
-	// Utilizamos os vetores como listas de tarefas e CPUs, pois eles permitem fácil adição e remoção de elementos, 
-    // além de fornecerem acesso rápido por índice. 
-    std::vector<CPU> cpus;            // Lista de processadores simulados 
-    std::vector<Task*> all_tasks;  // Todas as tarefas carregadas do arquivo 
-    std::vector<Task*> prontos;   // Tarefas aguardando execução 
+    Scheduler* escalonador;         // algoritmo de escalonamento ativo (polimórfico)
 
-    // Escalonador Polimórfico 
-    // Ponteiro para o algoritmo escolhido (SRTF ou PRIOP)
-    Scheduler* escalonador;
+    std::vector<Snapshot> historico; // pilha de estados para retroceder
 
-    // Histórico para retroceder
-    std::vector<Snapshot> historico;
-
-    // Métodos Auxiliares Privados (Encapsulamento)
-    void verificarChegadaTarefas();     // Move tarefas de 'all_tasks' para 'prontos'
-    void salvarEstado();                // Registra o snapshot atual no histórico
+    // Métodos auxiliares privados
+    void verificar_chegada_tarefas(); // move tarefas de all_tasks para prontos
+    void salvar_estado();             // registra snapshot no histórico
+    void do_tick();                   // lógica pura de um tick (sem salvar snapshot)
 
 public:
-
-	//Contrutor e Destrutor
-    Kernel(Config& config);            
+    Kernel(Config& config);
     ~Kernel();
 
-    // Controle da Simulação
-	void proximoTick();               // Avança 1 segundo
-	void retroceder();                // Volta 1 segundo
+    // Controle da simulação
+    void step_forward();   // salva estado e avança 1 tick (modo passo-a-passo)
+    void step_backward();  // restaura o tick anterior
+    void run_complete();   // executa até o fim sem intervenção humana
 
-    // Verificadores de Estado
-    bool simulacaoConcluida() const;    // Retorna true se todas as tarefas terminaram
-    int getRelogioAtual() const { return relogio_global; }
+    // Verificadores de estado
+    bool simulacao_concluida() const;
+    int  get_relogio_atual()   const { return relogio_global; }
 
-    // Getters para Interface (Gráfico de Gantt e Status)
-    const std::vector<CPU>& getCPUs() const { return cpus; }
-    const std::vector<Task*>& getAllTasks() const { return all_tasks; }
+    // Getters para a interface gráfica
+    const std::vector<CPU>&   get_cpus()      const { return cpus; }
+    const std::vector<Task*>& get_all_tasks() const { return all_tasks; }
 
-    // Relatórios
-    void imprimirStatus();           // Exibe  o estado atual no console
-
+    void imprimir_status();
 };
-
-

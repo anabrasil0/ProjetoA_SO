@@ -1,30 +1,36 @@
-#include <iostream>
+#pragma once
+#include <string>
 
-// Enumeração para representar os estados das tarefas
+// EnumeraÃ§Ã£o para representar os estados possÃ­veis de uma tarefa
 enum Estado {
-	PRONTA, 
-	EXECUTANDO, 
-	FINALIZADA
+    PRONTA,
+    EXECUTANDO,
+    FINALIZADA
 };
 
-//Classe das tarefas, com os atributos necessários para o escalonamento
+// Classe Task â€” representa o TCB (Task Control Block) de cada tarefa (Requisito 1.3)
 class Task {
 private:
-	int id; //identificador
-	//cor
-	int tempoIngresso; //momento de chegada no sistema
-	int duracao; //tempo necessário para execução (fixa)
-	int tempoRestante; //tempo que falta para finalizar a execução (altera)
-	int prioridade; //nível de prioridade no sistema
-	Estado estado;
-	std::string listaEventos; //não implementado nesse projeto
+    int id;
+    int tempo_ingresso;     // instante de chegada no sistema
+    int duracao;            // tempo total necessÃ¡rio para execuÃ§Ã£o (fixo)
+    int tempo_restante;     // tempo que ainda falta para terminar (decrementado a cada tick)
+    int prioridade;
+    Estado estado;
+    std::string lista_eventos; // reservado para o Projeto B
 
 public:
-	Task(int id, int ingresso, int duracao, int prioridade); // função construtora p/ criar a tarefa
-	int getId() const;
-	int getTempoIngresso() const;
-	int getDuracao() const;
-	int getTempoRestante() const;
-	int getPrioridade() const;
-	Estado getEstado() const;
+    Task(int id, int ingresso, int duracao, int prioridade);
+
+    // Getters
+    int    get_id()             const;
+    int    get_tempo_ingresso() const;
+    int    get_duracao()        const;
+    int    get_tempo_restante() const;
+    int    get_prioridade()     const;
+    Estado get_estado()         const;
+
+    // Setters (necessÃ¡rios para step_backward restaurar o TCB)
+    void set_tempo_restante(int t);
+    void set_estado(Estado e);
 };

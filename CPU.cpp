@@ -1,36 +1,35 @@
 #include "CPU.h"
 
-CPU::CPU() : tarefaAtual(nullptr), tempoOcioso(0) {
-	// Inicializa a CPU sem nenhuma tarefa e com tempo ocioso zero
-};
+CPU::CPU() : tarefa_atual(nullptr), tempo_ocioso(0) {}
 
-void CPU::executarTick() {
-	if (tarefaAtual != nullptr) { 
-		tarefaAtual->estado = EXECUTANDO;
-		tarefaAtual->tempoRestante--;
-	
-		if (tarefaAtual->tempoRestante <= 0) {
-			tarefaAtual->estado = FINALIZADA;
-			tarefaAtual = nullptr;
-		}
-	}
-	else {
-		tempoOcioso++;
-	}
-};
+// AvanÃ§a um tick na tarefa atual; se ela terminar, libera a CPU
+void CPU::executar_tick() {
+    if (tarefa_atual != nullptr) {
+        tarefa_atual->set_estado(EXECUTANDO);
+        tarefa_atual->set_tempo_restante(tarefa_atual->get_tempo_restante() - 1);
 
-bool CPU::estaOcupada() const {
-	return tarefaAtual != nullptr; // Retorna true se há uma tarefa em execução, false se a CPU está ociosa
-};
+        if (tarefa_atual->get_tempo_restante() <= 0) {
+            tarefa_atual->set_estado(FINALIZADA);
+            tarefa_atual = nullptr;
+        }
+    } 
+    else {
+        tempo_ocioso++;
+    }
+}
 
-Task* CPU::getTarefaAtual() const {
-	return tarefaAtual; // Retorna um ponteiro para a tarefa em execução
-};
+bool CPU::esta_ocupada() const {
+    return tarefa_atual != nullptr;
+}
 
-void CPU::setTarefaAtual(Task* novaTarefa) {
-	tarefaAtual = novaTarefa; // Define a tarefa atual para a CPU
-};
+Task* CPU::get_tarefa_atual() const {
+    return tarefa_atual;
+}
 
-int CPU::getTempoOcioso() const {
-	return tempoOcioso; // Retorna o tempo total que a CPU ficou ociosa
-};
+void CPU::set_tarefa_atual(Task* nova_tarefa) {
+    tarefa_atual = nova_tarefa;
+}
+
+int CPU::get_tempo_ocioso() const {
+    return tempo_ocioso;
+}
