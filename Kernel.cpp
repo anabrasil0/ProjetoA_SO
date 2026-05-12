@@ -3,7 +3,6 @@
 #include "PrioPScheduler.h"
 #include <iostream>
 #include <algorithm>
-#include <cctype>
 
 // ============================================================
 // Construtor
@@ -11,25 +10,22 @@
 Kernel::Kernel(Config& config) {
 
     // Normaliza o nome do algoritmo para maiúsculas (Requisito 3.3.2)
-    std::string algoritmo = config.getAlgoritmo();
-    std::transform(algoritmo.begin(), algoritmo.end(), algoritmo.begin(),
-        [](unsigned char c) { return std::toupper(c); });
+    // Config já normaliza o algoritmo para maiúsculas no parse (Requisito 3.3.2)
+    std::string algoritmo = config.get_algoritmo();
 
     // Instancia o escalonador correto (polimorfismo — Requisito 4.2)
     if (algoritmo == "SRTF") {
         escalonador = new SRTFScheduler();
-    } 
-    else if (algoritmo == "PRIOP") {
+    } else if (algoritmo == "PRIOP") {
         escalonador = new PrioPScheduler();
-    } 
-    else {
+    } else {
         std::cout << "Aviso: Algoritmo desconhecido. Usando PRIOP por padrao." << std::endl;
         escalonador = new PrioPScheduler();
     }
 
     relogio_global = 0;
-    quantum        = config.getQuantum();
-    qtde_cpus      = config.getCPUs();
+    quantum        = config.get_quantum();
+    qtde_cpus      = config.get_cpus();
 
     // Cria as CPUs (Requisito 1.2)
     for (int i = 0; i < qtde_cpus; i++) {
@@ -37,7 +33,7 @@ Kernel::Kernel(Config& config) {
     }
 
     // Cria os TCBs a partir dos dados brutos (Requisito 1.3)
-    for (const auto& t_data : config.getTasksData()) {
+    for (const auto& t_data : config.get_tarefas()) {
         Task* nova_task = new Task(
             t_data.id,
             t_data.ingresso,
@@ -48,7 +44,7 @@ Kernel::Kernel(Config& config) {
     }
 
     std::cout << "Kernel inicializado com " << qtde_cpus
-              << " CPUs e algoritmo " << config.getAlgoritmo() << std::endl;
+              << " CPUs e algoritmo " << config.get_algoritmo() << std::endl;
 }
 
 // ============================================================
