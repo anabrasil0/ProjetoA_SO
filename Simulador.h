@@ -21,7 +21,7 @@ struct Snapshot {
     std::vector<TaskState> estado_tarefas;
 };
 
-class Kernel {
+class Simulador {
 private:
     int relogio_global;         // contador de ticks do sistema (Requisito 1.1)
     int quantum;                // período máximo de execução por tarefa
@@ -41,8 +41,8 @@ private:
     void do_tick();                   // lógica pura de um tick (sem salvar snapshot)
 
 public:
-    Kernel(Config& config);
-    ~Kernel();
+    Simulador(Config& config);
+    ~Simulador();
 
     // Controle da simulação
     void step_forward();   // salva estado e avança 1 tick (modo passo-a-passo)

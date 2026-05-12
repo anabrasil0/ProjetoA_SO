@@ -16,10 +16,10 @@ struct TaskData {
 // arquivo de texto no formato definido pelo Requisito 3.3
 class Config {
 private:
-    std::string          algoritmo; // algoritmo de escalonamento ("SRTF" ou "PRIOP")
-    int                  quantum;   // período máximo de execução por tarefa
-    int                  qtde_cpus; // quantidade de processadores
-    std::vector<TaskData> tarefas;  // dados brutos de cada tarefa
+    std::string algoritmo; // algoritmo de escalonamento ("SRTF" ou "PRIOP")
+    int quantum; // período máximo de execução por tarefa
+    int qtde_cpus; // quantidade de processadores
+    std::vector<TaskData> tarefas; // dados brutos de cada tarefa
 
     // Lê e interpreta o arquivo linha a linha
     void parse(const std::string& caminho_arquivo);
@@ -35,8 +35,8 @@ public:
     Config(const std::string& caminho_arquivo);
 
     // Getters
-    std::string                   get_algoritmo() const;
-    int                           get_quantum()   const;
-    int                           get_cpus()      const;
-    const std::vector<TaskData>&  get_tarefas()   const;
+    std::string get_algoritmo() const;
+    int get_quantum() const;
+    int get_cpus() const;
+    const std::vector<TaskData>& get_tarefas() const;
 };

@@ -1,24 +1,25 @@
-#include "Kernel.h"
+#include "Simulador.h"
 #include "SRTFScheduler.h"
-#include "PRIOPScheduler.h"
+#include "PrioPScheduler.h"
 #include <iostream>
 #include <algorithm>
 
 // ============================================================
 // Construtor
 // ============================================================
-Kernel::Kernel(Config& config) {
+Simulador::Simulador(Config& config) {
 
-    // Normaliza o nome do algoritmo para maiúsculas (Requisito 3.3.2)
     // Config já normaliza o algoritmo para maiúsculas no parse (Requisito 3.3.2)
     std::string algoritmo = config.get_algoritmo();
 
     // Instancia o escalonador correto (polimorfismo — Requisito 4.2)
     if (algoritmo == "SRTF") {
         escalonador = new SRTFScheduler();
-    } else if (algoritmo == "PRIOP") {
+    } 
+    else if (algoritmo == "PRIOP") {
         escalonador = new PrioPScheduler();
-    } else {
+    } 
+    else {
         std::cout << "Aviso: Algoritmo desconhecido. Usando PRIOP por padrao." << std::endl;
         escalonador = new PrioPScheduler();
     }
@@ -43,14 +44,14 @@ Kernel::Kernel(Config& config) {
         all_tasks.push_back(nova_task);
     }
 
-    std::cout << "Kernel inicializado com " << qtde_cpus
+    std::cout << "Simulador inicializado com " << qtde_cpus
               << " CPUs e algoritmo " << config.get_algoritmo() << std::endl;
 }
 
 // ============================================================
 // Destrutor
 // ============================================================
-Kernel::~Kernel() {
+Simulador::~Simulador() {
     for (Task* t : all_tasks) {
         delete t;
     }
@@ -60,7 +61,7 @@ Kernel::~Kernel() {
         delete escalonador;
     }
 
-    std::cout << "Memoria do Kernel limpa com sucesso." << std::endl;
+    std::cout << "Memoria do Simulador limpa com sucesso." << std::endl;
 }
 
 // ============================================================
@@ -70,13 +71,13 @@ Kernel::~Kernel() {
 // Separar aqui permite que run_complete() chame do_tick() diretamente,
 // sem o custo de salvar estado a cada tick.
 // ============================================================
-void Kernel::do_tick() {
+void Simulador::do_tick() {
 
     // 1. Admite tarefas que chegam neste tick na fila de prontos
     verificar_chegada_tarefas();
 
     // 2. Escalonador decide qual tarefa vai para cada CPU (Requisito 4)
-    escalonador->escalonar(prontos, cpus, relogio_global);
+    escalonador->agendar(prontos, cpus, relogio_global);
 
     // 3. Cada CPU executa um tick na sua tarefa atual
     for (size_t i = 0; i < cpus.size(); i++) {
@@ -99,7 +100,7 @@ void Kernel::do_tick() {
 // Salva o estado ANTES de avançar para permitir o retrocesso.
 // É esse método que a interface chama no modo passo-a-passo.
 // ============================================================
-void Kernel::step_forward() {
+void Simulador::step_forward() {
     if (simulacao_concluida()) {
         std::cout << "Simulacao ja concluida." << std::endl;
         return;
@@ -116,7 +117,7 @@ void Kernel::step_forward() {
 // step_backward — PÚBLICO (Requisito 1.5.2)
 // Restaura o estado do tick anterior a partir do histórico.
 // ============================================================
-void Kernel::step_backward() {
+void Simulador::step_backward() {
     if (historico.empty()) {
         std::cout << "Aviso: Nao ha estados para retroceder. Inicio atingido." << std::endl;
         return;
@@ -158,7 +159,7 @@ void Kernel::step_backward() {
 // Chama do_tick() diretamente, sem salvar snapshots, pois o modo
 // completo não precisa de retrocesso (Requisito 1.5.3).
 // ============================================================
-void Kernel::run_complete() {
+void Simulador::run_complete() {
     while (!simulacao_concluida()) {
         do_tick();
     }
@@ -169,10 +170,9 @@ void Kernel::run_complete() {
 // verificar_chegada_tarefas — PRIVADO
 // Admite na fila de prontos toda tarefa cujo ingresso == tick atual.
 // ============================================================
-void Kernel::verificar_chegada_tarefas() {
+void Simulador::verificar_chegada_tarefas() {
     for (Task* t : all_tasks) {
-        if (t->get_tempo_ingresso() == relogio_global && t->get_estado() == CRIADA) {
-			t->set_estado(PRONTA);
+        if (t->get_tempo_ingresso() == relogio_global && t->get_estado() == PRONTA) {
             prontos.push_back(t);
             std::cout << "[Tick " << relogio_global << "] Tarefa " << t->get_id()
                       << " entrou na fila." << std::endl;
@@ -185,9 +185,9 @@ void Kernel::verificar_chegada_tarefas() {
 // Tira um snapshot completo do sistema (relógio + CPUs + TCBs).
 // Chamado por step_forward antes de do_tick.
 // ============================================================
-void Kernel::salvar_estado() {
+void Simulador::salvar_estado() {
     Snapshot snap;
-    snap.relogio    = relogio_global;
+    snap.relogio     = relogio_global;
     snap.estado_cpus = cpus;           // cópia por valor do vetor de CPUs
 
     for (Task* t : all_tasks) {
@@ -204,7 +204,7 @@ void Kernel::salvar_estado() {
 // ============================================================
 // simulacao_concluida — PÚBLICO
 // ============================================================
-bool Kernel::simulacao_concluida() const {
+bool Simulador::simulacao_concluida() const {
     if (!prontos.empty()) return false;
 
     for (const CPU& cpu : cpus) {
@@ -221,7 +221,7 @@ bool Kernel::simulacao_concluida() const {
 // ============================================================
 // imprimir_status — PÚBLICO
 // ============================================================
-void Kernel::imprimir_status() {
+void Simulador::imprimir_status() {
     std::cout << "\n========================================" << std::endl;
     std::cout << " TEMPO ATUAL: " << relogio_global
               << " | ALGORITMO: " << (escalonador ? "ATIVO" : "N/A") << std::endl;

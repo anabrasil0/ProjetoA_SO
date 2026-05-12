@@ -53,7 +53,8 @@ void Config::parse(const std::string& caminho_arquivo) {
             if (campos.size() >= 2) quantum   = std::stoi(campos[1]);
             if (campos.size() >= 3) qtde_cpus = std::stoi(campos[2]);
             primeira_linha = false;
-        } else {
+        } 
+        else {
             // Demais linhas: uma tarefa por linha
             if (campos.size() < 5) {
                 std::cout << "Aviso: linha de tarefa ignorada por ter menos de 5 campos: "
@@ -62,10 +63,10 @@ void Config::parse(const std::string& caminho_arquivo) {
             }
 
             TaskData td;
-            td.id         = std::stoi(campos[0]);
-            td.cor        = campos[1];
-            td.ingresso   = std::stoi(campos[2]);
-            td.duracao    = std::stoi(campos[3]);
+            td.id = std::stoi(campos[0]);
+            td.cor = campos[1];
+            td.ingresso = std::stoi(campos[2]);
+            td.duracao = std::stoi(campos[3]);
             td.prioridade = std::stoi(campos[4]);
 
             // lista_eventos é opcional (Projeto B)
@@ -113,7 +114,7 @@ std::string Config::para_maiusculas(std::string s) const {
 // Getters
 // ============================================================
 std::string Config::get_algoritmo() const { return algoritmo; }
-int         Config::get_quantum()   const { return quantum; }
-int         Config::get_cpus()      const { return qtde_cpus; }
+int Config::get_quantum()   const { return quantum; }
+int Config::get_cpus()      const { return qtde_cpus; }
 
 const std::vector<TaskData>& Config::get_tarefas() const { return tarefas; }
