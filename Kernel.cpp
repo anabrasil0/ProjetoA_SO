@@ -1,6 +1,6 @@
 #include "Kernel.h"
 #include "SRTFScheduler.h"
-#include "PrioPScheduler.h"
+#include "PRIOPScheduler.h"
 #include <iostream>
 #include <algorithm>
 
@@ -76,7 +76,7 @@ void Kernel::do_tick() {
     verificar_chegada_tarefas();
 
     // 2. Escalonador decide qual tarefa vai para cada CPU (Requisito 4)
-    escalonador->agendar(prontos, cpus, relogio_global);
+    escalonador->escalonar(prontos, cpus, relogio_global);
 
     // 3. Cada CPU executa um tick na sua tarefa atual
     for (size_t i = 0; i < cpus.size(); i++) {
@@ -171,7 +171,8 @@ void Kernel::run_complete() {
 // ============================================================
 void Kernel::verificar_chegada_tarefas() {
     for (Task* t : all_tasks) {
-        if (t->get_tempo_ingresso() == relogio_global && t->get_estado() == PRONTA) {
+        if (t->get_tempo_ingresso() == relogio_global && t->get_estado() == CRIADA) {
+			t->set_estado(PRONTA);
             prontos.push_back(t);
             std::cout << "[Tick " << relogio_global << "] Tarefa " << t->get_id()
                       << " entrou na fila." << std::endl;

@@ -3,7 +3,7 @@
 // Construtor: inicializa o TCB com os dados da tarefa; tempo_restante começa igual à duração
 Task::Task(int id, int ingresso, int duracao, int prioridade)
     : id(id), tempo_ingresso(ingresso), duracao(duracao),
-      tempo_restante(duracao), prioridade(prioridade), estado(PRONTA)
+      tempo_restante(duracao), prioridade(prioridade), estado(CRIADA)
 {}
 
 int Task::get_id() const {

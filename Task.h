@@ -1,8 +1,9 @@
 #pragma once
 #include <string>
 
-// Enumeração para representar os estados possíveis de uma tarefa
+// Enumeração global para representar os estados possíveis de uma tarefa
 enum Estado {
+    CRIADA,
     PRONTA,
     EXECUTANDO,
     FINALIZADA
