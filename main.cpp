@@ -32,12 +32,205 @@ static std::string estado_para_string(Estado e) {
     }
 }
 
+// Le uma linha e tenta converter para inteiro.
+// Retorna true e preenche 'resultado' em caso de sucesso.
+// Retorna false e exibe mensagem de erro se a entrada nao for um numero valido.
+// Usar esta funcao evita que cin entre em estado de falha (loop infinito)
+// quando o usuario digita texto onde se espera numero (ex: "T1" em vez de "1").
+static bool ler_inteiro(const std::string& prompt, int& resultado) {
+    std::cout << prompt;
+    std::string entrada;
+    std::getline(std::cin, entrada);
+
+    try {
+        size_t pos;
+        resultado = std::stoi(entrada, &pos);
+        // Verifica se havia lixo apos o numero (ex: "1abc")
+        if (pos != entrada.size()) {
+            std::cout << "Erro: \"" << entrada << "\" nao e um numero valido. "
+                      << "Digite apenas o numero (ex: 1, 2, 3)." << std::endl;
+            return false;
+        }
+        return true;
+    } catch (...) {
+        std::cout << "Erro: \"" << entrada << "\" nao e um numero valido. "
+                  << "Digite apenas o numero (ex: 1, 2, 3)." << std::endl;
+        return false;
+    }
+}
+
+// Le inteiro com valor padrao — Enter mantem o valor atual sem exibir erro
+static int ler_inteiro_com_padrao(const std::string& prompt, int padrao) {
+    std::cout << prompt << " [" << padrao << "]: ";
+    std::string entrada;
+    std::getline(std::cin, entrada);
+    if (entrada.empty()) return padrao;
+    try {
+        size_t pos;
+        int v = std::stoi(entrada, &pos);
+        if (pos == entrada.size()) return v;
+    } catch (...) {}
+    std::cout << "Entrada invalida, mantendo " << padrao << "." << std::endl;
+    return padrao;
+}
+
+// Le string com valor padrao — Enter mantem o valor atual
+static std::string ler_string_com_padrao(const std::string& prompt, const std::string& padrao) {
+    std::cout << prompt << " [" << padrao << "]: ";
+    std::string entrada;
+    std::getline(std::cin, entrada);
+    return entrada.empty() ? padrao : entrada;
+}
+
+// ============================================================
+// Menu de configuracao pre-simulacao (Requisito 3.1)
+// ============================================================
+
+static void exibir_config_atual(const Config& config) {
+    std::cout << "\n--- CONFIGURACAO DO SISTEMA ---" << std::endl;
+    std::cout << "  Algoritmo : " << config.get_algoritmo() << std::endl;
+    std::cout << "  Quantum   : " << config.get_quantum() << " ticks" << std::endl;
+    std::cout << "  CPUs      : " << config.get_cpus() << std::endl;
+    std::cout << "  Tarefas   : " << config.get_tarefas().size() << std::endl;
+}
+
+static void listar_config_tarefas(const Config& config) {
+    const auto& tarefas = config.get_tarefas();
+    if (tarefas.empty()) {
+        std::cout << "  (Nenhuma tarefa cadastrada)" << std::endl;
+        return;
+    }
+    std::cout << "\n  ID  Ingresso  Duracao  Prioridade  Cor" << std::endl;
+    std::cout << "  -----------------------------------------" << std::endl;
+    for (const auto& t : tarefas) {
+        std::cout << "   " << t.id
+                  << "      " << t.ingresso
+                  << "         " << t.duracao
+                  << "        " << t.prioridade
+                  << "         " << t.cor << std::endl;
+    }
+}
+
+static void alterar_parametros(Config& config) {
+    std::cout << "\n--- ALTERAR PARAMETROS ---" << std::endl;
+
+    std::cout << "Algoritmo atual: " << config.get_algoritmo() << std::endl;
+    std::cout << "  [1] SRTF  [2] PRIOP  [Enter] Manter" << std::endl;
+    std::cout << "Escolha: ";
+    std::string entrada;
+    std::getline(std::cin, entrada);
+    if (entrada == "1") config.set_algoritmo("SRTF");
+    else if (entrada == "2") config.set_algoritmo("PRIOP");
+
+    int q = ler_inteiro_com_padrao("Quantum", config.get_quantum());
+    if (q > 0) config.set_quantum(q);
+
+    int n = ler_inteiro_com_padrao("Numero de CPUs", config.get_cpus());
+    if (n > 0) config.set_cpus(n);
+
+    std::cout << "Parametros atualizados." << std::endl;
+}
+
+static void config_adicionar_tarefa(Config& config) {
+    int novo_id = 1;
+    for (const auto& t : config.get_tarefas()) {
+        if (t.id >= novo_id) novo_id = t.id + 1;
+    }
+
+    std::cout << "\n--- ADICIONAR TAREFA (ID: " << novo_id << ") ---" << std::endl;
+
+    TaskData td;
+    td.id = novo_id;
+
+    if (!ler_inteiro("Tick de ingresso: ", td.ingresso) || td.ingresso < 0) {
+        std::cout << "Operacao cancelada." << std::endl;
+        return;
+    }
+    if (!ler_inteiro("Duracao (ticks): ", td.duracao) || td.duracao <= 0) {
+        std::cout << "Operacao cancelada." << std::endl;
+        return;
+    }
+    if (!ler_inteiro("Prioridade: ", td.prioridade)) {
+        std::cout << "Operacao cancelada." << std::endl;
+        return;
+    }
+    td.cor = ler_string_com_padrao("Cor (hex, ex: FF0000)", "FFFFFF");
+
+    config.adicionar_tarefa(td);
+    std::cout << "Tarefa " << novo_id << " adicionada com sucesso." << std::endl;
+}
+
+static void config_editar_tarefa(Config& config) {
+    listar_config_tarefas(config);
+
+    int id;
+    if (!ler_inteiro("\nID da tarefa a editar: ", id)) return;
+
+    const auto& tarefas = config.get_tarefas();
+    const TaskData* existente = nullptr;
+    for (const auto& t : tarefas) {
+        if (t.id == id) { existente = &t; break; }
+    }
+
+    if (existente == nullptr) {
+        std::cout << "Tarefa " << id << " nao encontrada." << std::endl;
+        return;
+    }
+
+    TaskData td = *existente;
+    std::cout << "\n(Pressione Enter para manter o valor atual)" << std::endl;
+    td.ingresso   = ler_inteiro_com_padrao("Tick de ingresso", td.ingresso);
+    td.duracao    = ler_inteiro_com_padrao("Duracao (ticks)", td.duracao);
+    td.prioridade = ler_inteiro_com_padrao("Prioridade", td.prioridade);
+    td.cor        = ler_string_com_padrao("Cor (hex)", td.cor);
+
+    config.editar_tarefa(id, td);
+    std::cout << "Tarefa " << id << " atualizada com sucesso." << std::endl;
+}
+
+static void config_remover_tarefa(Config& config) {
+    listar_config_tarefas(config);
+
+    int id;
+    if (!ler_inteiro("\nID da tarefa a remover: ", id)) return;
+
+    if (config.remover_tarefa(id)) {
+        std::cout << "Tarefa " << id << " removida." << std::endl;
+    } else {
+        std::cout << "Tarefa " << id << " nao encontrada." << std::endl;
+    }
+}
+
+/* Menu interativo de configuracao pre-simulacao (Requisito 3.1 e 3.2) */
+static void menu_configuracao(Config& config) {
+    while (true) {
+        exibir_config_atual(config);
+        std::cout << "\n  [1] Alterar algoritmo / quantum / CPUs" << std::endl;
+        std::cout << "  [2] Listar tarefas" << std::endl;
+        std::cout << "  [3] Adicionar tarefa" << std::endl;
+        std::cout << "  [4] Editar tarefa" << std::endl;
+        std::cout << "  [5] Remover tarefa" << std::endl;
+        std::cout << "  [6] Iniciar simulacao" << std::endl;
+
+        int op;
+        if (!ler_inteiro("Escolha: ", op)) continue;
+
+        switch (op) {
+            case 1: alterar_parametros(config);      break;
+            case 2: listar_config_tarefas(config);   break;
+            case 3: config_adicionar_tarefa(config); break;
+            case 4: config_editar_tarefa(config);    break;
+            case 5: config_remover_tarefa(config);   break;
+            case 6: return;
+            default: std::cout << "Opcao invalida." << std::endl; break;
+        }
+    }
+}
+
 /* Exibe todas as informacoes de um TCB individualmente (Requisito 1.5.1) */
 static void inspecionar_tarefa(const Simulador& sim) {
-    std::cout << "ID da tarefa a inspecionar: ";
     int id;
-    std::cin >> id;
-    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    if (!ler_inteiro("ID da tarefa a inspecionar (ex: 1): ", id)) return;
 
     for (const Task* t : sim.get_all_tasks()) {
         if (t->get_id() == id) {
@@ -50,31 +243,26 @@ static void inspecionar_tarefa(const Simulador& sim) {
             return;
         }
     }
-    std::cout << "Tarefa " << id << " nao encontrada." << std::endl;
+    std::cout << "Erro: Tarefa com ID " << id << " nao existe no sistema." << std::endl;
 }
 
 /* Permite ao usuario modificar o estado de qualquer tarefa (Requisito 3.4) */
 static void modificar_tarefa(Simulador& sim) {
-    std::cout << "ID da tarefa a modificar: ";
     int id;
-    std::cin >> id;
-    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    if (!ler_inteiro("ID da tarefa a modificar (ex: 1): ", id)) return;
 
+    int op;
     std::cout << "Novo estado:" << std::endl;
     std::cout << "  [1] PRONTA" << std::endl;
     std::cout << "  [2] FINALIZADA" << std::endl;
-    std::cout << "Escolha: ";
-
-    int op;
-    std::cin >> op;
-    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    if (!ler_inteiro("Escolha: ", op)) return;
 
     Estado novo;
     switch (op) {
         case 1: novo = PRONTA;     break;
         case 2: novo = FINALIZADA; break;
         default:
-            std::cout << "Opcao invalida. Nenhuma modificacao feita." << std::endl;
+            std::cout << "Erro: opcao invalida. Nenhuma modificacao feita." << std::endl;
             return;
     }
 
@@ -103,6 +291,11 @@ int main() {
     if (caminho.empty()) caminho = "config.txt";
 
     Config config(caminho);
+
+    /* Menu de configuracao pre-simulacao (Requisito 3.1) */
+    std::cout << "\nRevise e ajuste a configuracao antes de iniciar." << std::endl;
+    menu_configuracao(config);
+
     Simulador simulador(config);
 
     /* Seleciona o modo de execucao (Requisito 1.5) */

@@ -131,3 +131,28 @@ int Config::get_quantum()   const { return quantum; }
 int Config::get_cpus()      const { return qtde_cpus; }
 
 const std::vector<TaskData>& Config::get_tarefas() const { return tarefas; }
+
+// ============================================================
+// Setters (Requisito 3.1 — configuracao interativa pre-simulacao)
+// ============================================================
+void Config::set_algoritmo(const std::string& alg) { algoritmo = para_maiusculas(alg); }
+void Config::set_quantum(int q)                    { quantum   = q; }
+void Config::set_cpus(int n)                       { qtde_cpus = n; }
+
+void Config::adicionar_tarefa(const TaskData& td) {
+    tarefas.push_back(td);
+}
+
+bool Config::remover_tarefa(int id) {
+    for (auto it = tarefas.begin(); it != tarefas.end(); ++it) {
+        if (it->id == id) { tarefas.erase(it); return true; }
+    }
+    return false;
+}
+
+bool Config::editar_tarefa(int id, const TaskData& td) {
+    for (auto& t : tarefas) {
+        if (t.id == id) { t = td; return true; }
+    }
+    return false;
+}

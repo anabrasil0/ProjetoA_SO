@@ -39,4 +39,12 @@ public:
     int get_quantum() const;
     int get_cpus() const;
     const std::vector<TaskData>& get_tarefas() const;
+
+    // Setters para configuracao interativa pre-simulacao (Requisito 3.1)
+    void set_algoritmo(const std::string& alg);
+    void set_quantum(int q);
+    void set_cpus(int n);
+    void adicionar_tarefa(const TaskData& td);
+    bool remover_tarefa(int id);
+    bool editar_tarefa(int id, const TaskData& td);
 };
