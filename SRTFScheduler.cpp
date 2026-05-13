@@ -1,4 +1,6 @@
 #include "SRTFScheduler.h"
+#include "Task.h"
+#include "CPU.h"
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>

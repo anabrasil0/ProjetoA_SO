@@ -42,6 +42,19 @@ void Config::parse(const std::string& caminho_arquivo) {
     bool primeira_linha = true;
 
     while (std::getline(arquivo, linha)) {
+        // Remove BOM UTF-8 (0xEF 0xBB 0xBF) se presente no inicio da primeira linha.
+        // Editores e o PowerShell frequentemente inserem o BOM em arquivos UTF-8,
+        // o que corromperia a leitura do primeiro campo sem este tratamento.
+        if (linha.size() >= 3 &&
+            (unsigned char)linha[0] == 0xEF &&
+            (unsigned char)linha[1] == 0xBB &&
+            (unsigned char)linha[2] == 0xBF) {
+            linha.erase(0, 3);
+        }
+
+        // Remove '\r' final (arquivos com quebra de linha Windows \r\n lidos em modo texto)
+        if (!linha.empty() && linha.back() == '\r') linha.pop_back();
+
         // Ignora linhas vazias
         if (linha.empty()) continue;
 

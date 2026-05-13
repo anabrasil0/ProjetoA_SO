@@ -135,12 +135,16 @@ int main() {
     std::cout << "\n--- MODO PASSO-A-PASSO ---" << std::endl;
     simulador.imprimir_status();
 
+    // Controla se o aviso de conclusao ja foi exibido, para nao repetir a cada comando
+    bool conclusao_exibida = false;
+
     while (true) {
-        if (simulador.simulacao_concluida()) {
+        if (simulador.simulacao_concluida() && !conclusao_exibida) {
             std::cout << "\nSimulacao concluida no tick "
-                      << simulador.get_relogio_atual() << "!" << std::endl;
+                      << simulador.get_relogio_atual() << "!"
+                      << " Use [R] para retroceder ou [S] para sair." << std::endl;
             simulador.imprimir_status();
-            break;
+            conclusao_exibida = true;
         }
 
         exibir_menu_passo();
@@ -160,6 +164,7 @@ int main() {
             case 'R':
                 /* Restaura o estado do tick anterior (Requisito 1.5.2) */
                 simulador.step_backward();
+                conclusao_exibida = false; // simulacao pode nao estar mais concluida
                 simulador.imprimir_status();
                 break;
 

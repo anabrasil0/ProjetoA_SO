@@ -1,6 +1,6 @@
 #include "Simulador.h"
 #include "SRTFScheduler.h"
-#include "PrioPScheduler.h"
+#include "PRIOPScheduler.h"
 #include <iostream>
 #include <algorithm>
 
@@ -20,11 +20,11 @@ Simulador::Simulador(Config& config) {
         escalonador = new SRTFScheduler(q);
     }
     else if (algoritmo == "PRIOP") {
-        escalonador = new PrioPScheduler(q);
+        escalonador = new PRIOPScheduler(q);
     }
     else {
         std::cout << "Aviso: Algoritmo desconhecido. Usando PRIOP por padrao." << std::endl;
-        escalonador = new PrioPScheduler(q);
+        escalonador = new PRIOPScheduler(q);
     }
 
     relogio_global = 0;
@@ -176,10 +176,13 @@ void Simulador::run_complete() {
 // ============================================================
 void Simulador::verificar_chegada_tarefas() {
     for (Task* t : all_tasks) {
-        if (t->get_tempo_ingresso() == relogio_global && t->get_estado() == PRONTA) {
+        // Verifica estado CRIADA (nao PRONTA): tarefas nascem como CRIADA e so
+        // transitam para PRONTA no instante de ingresso, aqui mesmo.
+        if (t->get_tempo_ingresso() == relogio_global && t->get_estado() == CRIADA) {
+            t->set_estado(PRONTA);
             prontos.push_back(t);
             std::cout << "[Tick " << relogio_global << "] Tarefa " << t->get_id()
-                      << " entrou na fila." << std::endl;
+                      << " chegou e entrou na fila de prontos." << std::endl;
         }
     }
 }
@@ -289,13 +292,20 @@ void Simulador::imprimir_status() {
     std::cout << " [CPUs]" << std::endl;
     for (size_t i = 0; i < cpus.size(); i++) {
         std::cout << "  CPU " << i << ": ";
-        if (cpus[i].esta_ocupada()) {
+        if (!cpus[i].esta_ligada()) {
+            // CPU desligada por ausencia de tarefas (Requisito 1.2)
+            std::cout << "DESLIGADA (total desligada: "
+                      << cpus[i].get_tempo_desligada() << " ticks)" << std::endl;
+        }
+        else if (cpus[i].esta_ocupada()) {
             Task* t = cpus[i].get_tarefa_atual();
-            std::cout << "[ID: " << t->get_id() << "] - "
-                      << t->get_tempo_restante() << "s restantes" << std::endl;
-        } 
+            std::cout << "Executando T" << t->get_id()
+                      << " | restante: " << t->get_tempo_restante() << " ticks"
+                      << " | quantum usado: " << cpus[i].get_ticks_no_quantum() << std::endl;
+        }
         else {
-            std::cout << "IDLE (Ociosa)" << std::endl;
+            std::cout << "OCIOSA (total ocioso: "
+                      << cpus[i].get_tempo_ocioso() << " ticks)" << std::endl;
         }
     }
 
