@@ -46,11 +46,12 @@ static bool priop_melhor(Task* a, Task* b, Task* atual) {
 // ============================================================
 // escalonar — PUBLICO (Requisito 4)
 // Percorre todas as CPUs e decide qual tarefa executa em cada uma.
-// Para cada CPU, tres situacoes sao tratadas nessa ordem:
-//   (a) Quantum expirou: tarefa atual volta para prontos antes de tudo.
-//   (b) CPU ociosa: escolhe a tarefa com maior prioridade estatica.
-//   (c) CPU ocupada: preempta se existir candidata com prioridade maior.
-// Toda a logica de preempcao fica aqui, sem nenhuma dependencia do Simulador.
+// Para cada CPU, quatro situacoes sao tratadas nessa ordem:
+//   (a) Quantum expirou: tarefa volta para prontos antes de qualquer decisao.
+//   (b) CPU desligada: religar se houver trabalho; senao manter desligada.
+//   (c) CPU ociosa: atribuir tarefa ou desligar se fila vazia (Requisito 1.2).
+//   (d) CPU ocupada: preemptar se candidata tiver prioridade maior.
+// Toda a logica de preempcao e desligamento fica aqui, no scheduler.
 // ============================================================
 void PRIOPScheduler::escalonar(std::vector<Task*>& prontos,
                                std::vector<CPU>& cpus,
@@ -59,18 +60,27 @@ void PRIOPScheduler::escalonar(std::vector<Task*>& prontos,
     for (CPU& cpu : cpus) {
 
         // (a) Preempcao por quantum
-        // Se a tarefa atual ja rodou 'quantum' ticks consecutivos, ela e
-        // recolocada na fila de prontos e a CPU fica livre para nova escolha.
-        if (cpu.esta_ocupada() && cpu.get_ticks_no_quantum() >= quantum) {
+        // Apenas CPUs ligadas e ocupadas podem ter quantum esgotado.
+        if (cpu.esta_ligada() && cpu.esta_ocupada() && cpu.get_ticks_no_quantum() >= quantum) {
             Task* expirada = cpu.get_tarefa_atual();
             expirada->set_estado(PRONTA);
             prontos.push_back(expirada);
             cpu.set_tarefa_atual(nullptr);
         }
 
+        // (b) CPU desligada: religar se houver trabalho disponivel
+        if (!cpu.esta_ligada()) {
+            if (!prontos.empty()) {
+                cpu.ligar();
+                // cai no bloco (c) para receber a tarefa
+            } else {
+                continue; // sem tarefas, permanece desligada
+            }
+        }
+
         Task* tarefa_atual = cpu.get_tarefa_atual();
 
-        // (b) CPU ociosa: atribui a tarefa de maior prioridade
+        // (c) CPU ociosa: atribui a melhor tarefa ou desliga (Requisito 1.2)
         if (!cpu.esta_ocupada()) {
 
             if (!prontos.empty()) {
@@ -85,10 +95,13 @@ void PRIOPScheduler::escalonar(std::vector<Task*>& prontos,
                 prontos.erase(it);
                 escolhida->set_estado(EXECUTANDO);
                 cpu.set_tarefa_atual(escolhida);
+            } else {
+                // Fila vazia e CPU sem tarefa: desligar para nao ficar ociosa
+                cpu.desligar();
             }
         }
 
-        // (c) CPU ocupada: preempcao por prioridade
+        // (d) CPU ocupada: preempcao por prioridade
         // So troca se a candidata tiver prioridade estritamente maior que a atual.
         else {
 
