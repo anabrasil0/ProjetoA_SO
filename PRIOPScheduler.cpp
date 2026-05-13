@@ -1,12 +1,11 @@
-#include "SRTFScheduler.h"
-
+#pragma once
+#include "PRIOPScheduler.h"
 #include <algorithm>
 
-SRTFScheduler::SRTFScheduler() {
-
+PROIPScheduler::PROIPScheduler() {
 }
 
-void SRTFScheduler::escalonar(std::vector<Task*>& prontos,
+void PRIOPScheduler::escalonar(std::vector<Task*>& prontos,
     std::vector<CPU>& cpus,
     int relogio_global) {
 
@@ -14,9 +13,9 @@ void SRTFScheduler::escalonar(std::vector<Task*>& prontos,
 
         Task* tarefa_atual = cpu.get_tarefa_atual();
 
-        // =========================================================
+        // =====================================================
         // CPU OCIOSA
-        // =========================================================
+        // =====================================================
         if (!cpu.esta_ocupada()) {
 
             if (!prontos.empty()) {
@@ -27,13 +26,13 @@ void SRTFScheduler::escalonar(std::vector<Task*>& prontos,
 
                     [tarefa_atual](Task* a, Task* b) {
 
-                        // 1. Menor tempo restante
-                        if (a->get_tempo_restante() != b->get_tempo_restante()) {
-                            return a->get_tempo_restante() <
-                                b->get_tempo_restante();
+                        // 1. MAIOR prioridade
+                        if (a->get_prioridade() != b->get_prioridade()) {
+                            return a->get_prioridade() >
+                                b->get_prioridade();
                         }
 
-                        // 2. Evita troca de contexto desnecessária
+                        // 2. Evita troca desnecessária
                         if (tarefa_atual != nullptr) {
 
                             if (a == tarefa_atual) return true;
@@ -46,33 +45,30 @@ void SRTFScheduler::escalonar(std::vector<Task*>& prontos,
                                 b->get_tempo_ingresso();
                         }
 
-                        // 4. Menor duração total
+                        // 4. Menor duração
                         if (a->get_duracao() != b->get_duracao()) {
                             return a->get_duracao() <
                                 b->get_duracao();
                         }
 
-                        // 5. Desempate final temporário
+                        // 5. Desempate final 
                         return a->get_id() < b->get_id();
                     }
                 );
 
                 Task* nova_tarefa = *it;
 
-                // remove da fila
                 prontos.erase(it);
 
-                // atualiza estado
                 nova_tarefa->set_estado(EXECUTANDO);
 
-                // envia para CPU
                 cpu.set_tarefa_atual(nova_tarefa);
             }
         }
 
-        // =========================================================
+        // =====================================================
         // CPU OCUPADA (PREEMPÇÃO)
-        // =========================================================
+        // =====================================================
         else {
 
             if (!prontos.empty()) {
@@ -83,13 +79,13 @@ void SRTFScheduler::escalonar(std::vector<Task*>& prontos,
 
                     [tarefa_atual](Task* a, Task* b) {
 
-                        // 1. Menor tempo restante
-                        if (a->get_tempo_restante() != b->get_tempo_restante()) {
-                            return a->get_tempo_restante() <
-                                b->get_tempo_restante();
+                        // 1. MAIOR prioridade
+                        if (a->get_prioridade() != b->get_prioridade()) {
+                            return a->get_prioridade() >
+                                b->get_prioridade();
                         }
 
-                        // 2. Evita troca de contexto desnecessária
+                        // 2. Evita troca desnecessária
                         if (tarefa_atual != nullptr) {
 
                             if (a == tarefa_atual) return true;
@@ -102,24 +98,25 @@ void SRTFScheduler::escalonar(std::vector<Task*>& prontos,
                                 b->get_tempo_ingresso();
                         }
 
-                        // 4. Menor duração total
+                        // 4. Menor duração
                         if (a->get_duracao() != b->get_duracao()) {
                             return a->get_duracao() <
                                 b->get_duracao();
                         }
 
-                        // 5. Desempate final
+                        // 5. Desempate final temporário
                         return a->get_id() < b->get_id();
                     }
                 );
 
                 Task* melhor_tarefa = *it;
 
-                // Só faz preempção se a nova realmente for melhor
-                if (melhor_tarefa->get_tempo_restante() <
-                    tarefa_atual->get_tempo_restante()) {
+                // PREEMPÇÃO:
+                // só troca se a prioridade for MAIOR
+                if (melhor_tarefa->get_prioridade() >
+                    tarefa_atual->get_prioridade()) {
 
-                    // remove nova tarefa da fila primeiro
+                    // remove nova da fila
                     prontos.erase(it);
 
                     // tarefa antiga volta para pronta
