@@ -1,4 +1,4 @@
-#include "SRTFScheduler.h"
+#include "PRIOPScheduler.h"
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
@@ -6,20 +6,20 @@
 // ============================================================
 // Construtor
 // ============================================================
-SRTFScheduler::SRTFScheduler(int quantum) : Scheduler(quantum) {}
+PRIOPScheduler::PRIOPScheduler(int quantum) : Scheduler(quantum) {}
 
 // ============================================================
-// srtf_melhor — comparador local (auxiliar de escalonar)
+// priop_melhor — comparador local (auxiliar de escalonar)
 // Retorna true se a tarefa 'a' deve ser preferida em relacao a 'b'.
 // Usado pelo std::min_element para encontrar a melhor candidata.
 // O parametro 'atual' e a tarefa que esta executando na CPU neste momento;
 // ele e necessario para aplicar o criterio de evitar troca desnecessaria.
 // ============================================================
-static bool srtf_melhor(Task* a, Task* b, Task* atual) {
+static bool priop_melhor(Task* a, Task* b, Task* atual) {
 
-    // 1. Menor tempo restante — criterio principal do SRTF
-    if (a->get_tempo_restante() != b->get_tempo_restante())
-        return a->get_tempo_restante() < b->get_tempo_restante();
+    // 1. Maior prioridade estatica — criterio principal do PRIOP (Requisito 4.4)
+    if (a->get_prioridade() != b->get_prioridade())
+        return a->get_prioridade() > b->get_prioridade();
 
     // 2. Evita troca de contexto desnecessaria (Requisito 4.3)
     if (atual != nullptr) {
@@ -48,11 +48,11 @@ static bool srtf_melhor(Task* a, Task* b, Task* atual) {
 // Percorre todas as CPUs e decide qual tarefa executa em cada uma.
 // Para cada CPU, tres situacoes sao tratadas nessa ordem:
 //   (a) Quantum expirou: tarefa atual volta para prontos antes de tudo.
-//   (b) CPU ociosa: escolhe a tarefa com menor tempo restante.
-//   (c) CPU ocupada: preempta se existir candidata com tempo restante menor.
+//   (b) CPU ociosa: escolhe a tarefa com maior prioridade estatica.
+//   (c) CPU ocupada: preempta se existir candidata com prioridade maior.
 // Toda a logica de preempcao fica aqui, sem nenhuma dependencia do Simulador.
 // ============================================================
-void SRTFScheduler::escalonar(std::vector<Task*>& prontos,
+void PRIOPScheduler::escalonar(std::vector<Task*>& prontos,
                                std::vector<CPU>& cpus,
                                int relogio_global) {
 
@@ -70,14 +70,14 @@ void SRTFScheduler::escalonar(std::vector<Task*>& prontos,
 
         Task* tarefa_atual = cpu.get_tarefa_atual();
 
-        // (b) CPU ociosa: atribui a tarefa com menor tempo restante
+        // (b) CPU ociosa: atribui a tarefa de maior prioridade
         if (!cpu.esta_ocupada()) {
 
             if (!prontos.empty()) {
                 auto it = std::min_element(
                     prontos.begin(), prontos.end(),
                     [tarefa_atual](Task* a, Task* b) {
-                        return srtf_melhor(a, b, tarefa_atual);
+                        return priop_melhor(a, b, tarefa_atual);
                     }
                 );
 
@@ -88,21 +88,21 @@ void SRTFScheduler::escalonar(std::vector<Task*>& prontos,
             }
         }
 
-        // (c) CPU ocupada: preempcao por SRTF
-        // So troca se a candidata tiver tempo restante estritamente menor.
+        // (c) CPU ocupada: preempcao por prioridade
+        // So troca se a candidata tiver prioridade estritamente maior que a atual.
         else {
 
             if (!prontos.empty()) {
                 auto it = std::min_element(
                     prontos.begin(), prontos.end(),
                     [tarefa_atual](Task* a, Task* b) {
-                        return srtf_melhor(a, b, tarefa_atual);
+                        return priop_melhor(a, b, tarefa_atual);
                     }
                 );
 
                 Task* candidata = *it;
 
-                if (candidata->get_tempo_restante() < tarefa_atual->get_tempo_restante()) {
+                if (candidata->get_prioridade() > tarefa_atual->get_prioridade()) {
                     prontos.erase(it);
 
                     tarefa_atual->set_estado(PRONTA);

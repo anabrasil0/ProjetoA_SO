@@ -58,4 +58,8 @@ public:
     const std::vector<Task*>& get_all_tasks() const { return all_tasks; }
 
     void imprimir_status();
+
+    // Modifica manualmente o estado de qualquer tarefa (Requisito 3.4)
+    // Atualiza tambem a fila de prontos e as CPUs para manter consistencia interna.
+    void modificar_estado_tarefa(int id, Estado novo_estado);
 };

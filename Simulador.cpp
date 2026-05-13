@@ -13,15 +13,18 @@ Simulador::Simulador(Config& config) {
     std::string algoritmo = config.get_algoritmo();
 
     // Instancia o escalonador correto (polimorfismo — Requisito 4.2)
+    // Quantum e passado ao scheduler para que ele mesmo controle a preempcao
+    // por tempo. O Simulador nao tem logica de preempcao — isso e politica do scheduler.
+    int q = config.get_quantum();
     if (algoritmo == "SRTF") {
-        escalonador = new SRTFScheduler();
-    } 
+        escalonador = new SRTFScheduler(q);
+    }
     else if (algoritmo == "PRIOP") {
-        escalonador = new PrioPScheduler();
-    } 
+        escalonador = new PrioPScheduler(q);
+    }
     else {
         std::cout << "Aviso: Algoritmo desconhecido. Usando PRIOP por padrao." << std::endl;
-        escalonador = new PrioPScheduler();
+        escalonador = new PrioPScheduler(q);
     }
 
     relogio_global = 0;
@@ -77,11 +80,12 @@ void Simulador::do_tick() {
     verificar_chegada_tarefas();
 
     // 2. Escalonador decide qual tarefa vai para cada CPU (Requisito 4)
-    escalonador->agendar(prontos, cpus, relogio_global);
+    escalonador->escalonar(prontos, cpus, relogio_global);
 
-    // 3. Cada CPU executa um tick na sua tarefa atual
+    // 3. Notifica cada CPU do tick para que ela avance seu estado interno.
+    // processar_ciclo() nao dispara o tick — apenas responde a ele.
     for (size_t i = 0; i < cpus.size(); i++) {
-        cpus[i].executar_tick();
+        cpus[i].processar_ciclo();
     }
 
     // 4. Remove da fila de prontos as tarefas que finalizaram
@@ -216,6 +220,61 @@ bool Simulador::simulacao_concluida() const {
     }
 
     return true;
+}
+
+// ============================================================
+// modificar_estado_tarefa — PÚBLICO (Requisito 3.4)
+// Permite que o usuario altere o estado de qualquer tarefa em qualquer
+// passo da simulacao. Alem de atualizar o TCB, mantém consistencia:
+//   - PRONTA:     insere na fila de prontos se ainda nao estiver
+//   - FINALIZADA: remove da fila de prontos e desvincula de qualquer CPU
+// ============================================================
+void Simulador::modificar_estado_tarefa(int id, Estado novo_estado) {
+    Task* alvo = nullptr;
+    for (Task* t : all_tasks) {
+        if (t->get_id() == id) { alvo = t; break; }
+    }
+
+    if (alvo == nullptr) {
+        std::cout << "Tarefa " << id << " nao encontrada." << std::endl;
+        return;
+    }
+
+    alvo->set_estado(novo_estado);
+
+    if (novo_estado == PRONTA) {
+        // Adiciona a fila de prontos apenas se ainda nao estiver nela
+        bool ja_esta = false;
+        for (Task* t : prontos) {
+            if (t->get_id() == id) { ja_esta = true; break; }
+        }
+        if (!ja_esta) prontos.push_back(alvo);
+
+        // Se estava em alguma CPU, libera a CPU
+        for (CPU& cpu : cpus) {
+            if (cpu.esta_ocupada() && cpu.get_tarefa_atual()->get_id() == id) {
+                cpu.set_tarefa_atual(nullptr);
+            }
+        }
+    }
+    else if (novo_estado == FINALIZADA) {
+        // Remove da fila de prontos
+        prontos.erase(
+            std::remove_if(prontos.begin(), prontos.end(),
+                [id](Task* t) { return t->get_id() == id; }),
+            prontos.end()
+        );
+
+        // Libera qualquer CPU que esteja executando essa tarefa
+        for (CPU& cpu : cpus) {
+            if (cpu.esta_ocupada() && cpu.get_tarefa_atual()->get_id() == id) {
+                cpu.set_tarefa_atual(nullptr);
+            }
+        }
+    }
+
+    std::cout << "Tarefa " << id << " alterada para "
+              << (novo_estado == PRONTA ? "PRONTA" : "FINALIZADA") << "." << std::endl;
 }
 
 // ============================================================
