@@ -18,18 +18,20 @@ private:
     int tempo_restante;     // tempo que ainda falta para terminar (decrementado a cada tick)
     int prioridade;
     Estado estado;
+    std::string cor;           // cor RGB hex para o Gantt (ex: "FF0000")
     std::string lista_eventos; // reservado para o Projeto B
 
 public:
-    Task(int id, int ingresso, int duracao, int prioridade);
+    Task(int id, int ingresso, int duracao, int prioridade, const std::string& cor = "FFFFFF");
 
     // Getters
-    int    get_id()             const;
-    int    get_tempo_ingresso() const;
-    int    get_duracao()        const;
-    int    get_tempo_restante() const;
-    int    get_prioridade()     const;
-    Estado get_estado()         const;
+    int         get_id()             const;
+    int         get_tempo_ingresso() const;
+    int         get_duracao()        const;
+    int         get_tempo_restante() const;
+    int         get_prioridade()     const;
+    Estado      get_estado()         const;
+    std::string get_cor()            const;
 
     // Setters (necessários para step_backward restaurar o TCB)
     void set_tempo_restante(int t);

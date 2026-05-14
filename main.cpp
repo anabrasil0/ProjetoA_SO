@@ -9,6 +9,7 @@
  */
 
 #include <iostream>
+#include <iomanip>
 #include <string>
 #include <limits>
 #include <cctype>
@@ -16,6 +17,7 @@
 #include "Config.h"
 #include "Simulador.h"
 #include "Task.h"
+#include "GanttChart.h"
 
 // ============================================================
 // Helpers locais
@@ -74,14 +76,6 @@ static int ler_inteiro_com_padrao(const std::string& prompt, int padrao) {
     return padrao;
 }
 
-// Le string com valor padrao — Enter mantem o valor atual
-static std::string ler_string_com_padrao(const std::string& prompt, const std::string& padrao) {
-    std::cout << prompt << " [" << padrao << "]: ";
-    std::string entrada;
-    std::getline(std::cin, entrada);
-    return entrada.empty() ? padrao : entrada;
-}
-
 // ============================================================
 // Menu de configuracao pre-simulacao (Requisito 3.1)
 // ============================================================
@@ -100,14 +94,21 @@ static void listar_config_tarefas(const Config& config) {
         std::cout << "  (Nenhuma tarefa cadastrada)" << std::endl;
         return;
     }
-    std::cout << "\n  ID  Ingresso  Duracao  Prioridade  Cor" << std::endl;
-    std::cout << "  -----------------------------------------" << std::endl;
+    std::cout << "\n"
+              << std::right
+              << std::setw(4)  << "ID"
+              << std::setw(10) << "Ingresso"
+              << std::setw(9)  << "Duracao"
+              << std::setw(12) << "Prioridade"
+              << std::endl;
+    std::cout << "  " << std::string(33, '-') << std::endl;
     for (const auto& t : tarefas) {
-        std::cout << "   " << t.id
-                  << "      " << t.ingresso
-                  << "         " << t.duracao
-                  << "        " << t.prioridade
-                  << "         " << t.cor << std::endl;
+        std::cout << std::right
+                  << std::setw(4)  << t.id
+                  << std::setw(10) << t.ingresso
+                  << std::setw(9)  << t.duracao
+                  << std::setw(12) << t.prioridade
+                  << std::endl;
     }
 }
 
@@ -129,35 +130,6 @@ static void alterar_parametros(Config& config) {
     if (n > 0) config.set_cpus(n);
 
     std::cout << "Parametros atualizados." << std::endl;
-}
-
-static void config_adicionar_tarefa(Config& config) {
-    int novo_id = 1;
-    for (const auto& t : config.get_tarefas()) {
-        if (t.id >= novo_id) novo_id = t.id + 1;
-    }
-
-    std::cout << "\n--- ADICIONAR TAREFA (ID: " << novo_id << ") ---" << std::endl;
-
-    TaskData td;
-    td.id = novo_id;
-
-    if (!ler_inteiro("Tick de ingresso: ", td.ingresso) || td.ingresso < 0) {
-        std::cout << "Operacao cancelada." << std::endl;
-        return;
-    }
-    if (!ler_inteiro("Duracao (ticks): ", td.duracao) || td.duracao <= 0) {
-        std::cout << "Operacao cancelada." << std::endl;
-        return;
-    }
-    if (!ler_inteiro("Prioridade: ", td.prioridade)) {
-        std::cout << "Operacao cancelada." << std::endl;
-        return;
-    }
-    td.cor = ler_string_com_padrao("Cor (hex, ex: FF0000)", "FFFFFF");
-
-    config.adicionar_tarefa(td);
-    std::cout << "Tarefa " << novo_id << " adicionada com sucesso." << std::endl;
 }
 
 static void config_editar_tarefa(Config& config) {
@@ -182,23 +154,9 @@ static void config_editar_tarefa(Config& config) {
     td.ingresso   = ler_inteiro_com_padrao("Tick de ingresso", td.ingresso);
     td.duracao    = ler_inteiro_com_padrao("Duracao (ticks)", td.duracao);
     td.prioridade = ler_inteiro_com_padrao("Prioridade", td.prioridade);
-    td.cor        = ler_string_com_padrao("Cor (hex)", td.cor);
 
     config.editar_tarefa(id, td);
     std::cout << "Tarefa " << id << " atualizada com sucesso." << std::endl;
-}
-
-static void config_remover_tarefa(Config& config) {
-    listar_config_tarefas(config);
-
-    int id;
-    if (!ler_inteiro("\nID da tarefa a remover: ", id)) return;
-
-    if (config.remover_tarefa(id)) {
-        std::cout << "Tarefa " << id << " removida." << std::endl;
-    } else {
-        std::cout << "Tarefa " << id << " nao encontrada." << std::endl;
-    }
 }
 
 /* Menu interativo de configuracao pre-simulacao (Requisito 3.1 e 3.2) */
@@ -207,21 +165,17 @@ static void menu_configuracao(Config& config) {
         exibir_config_atual(config);
         std::cout << "\n  [1] Alterar algoritmo / quantum / CPUs" << std::endl;
         std::cout << "  [2] Listar tarefas" << std::endl;
-        std::cout << "  [3] Adicionar tarefa" << std::endl;
-        std::cout << "  [4] Editar tarefa" << std::endl;
-        std::cout << "  [5] Remover tarefa" << std::endl;
-        std::cout << "  [6] Iniciar simulacao" << std::endl;
+        std::cout << "  [3] Editar tarefa" << std::endl;
+        std::cout << "  [4] Iniciar simulacao" << std::endl;
 
         int op;
         if (!ler_inteiro("Escolha: ", op)) continue;
 
         switch (op) {
-            case 1: alterar_parametros(config);      break;
-            case 2: listar_config_tarefas(config);   break;
-            case 3: config_adicionar_tarefa(config); break;
-            case 4: config_editar_tarefa(config);    break;
-            case 5: config_remover_tarefa(config);   break;
-            case 6: return;
+            case 1: alterar_parametros(config);    break;
+            case 2: listar_config_tarefas(config); break;
+            case 3: config_editar_tarefa(config);  break;
+            case 4: return;
             default: std::cout << "Opcao invalida." << std::endl; break;
         }
     }
@@ -280,17 +234,12 @@ static void exibir_menu_passo() {
 // main
 // ============================================================
 int main() {
-    std::cout << "==========================================" << std::endl;
-    std::cout << "   SIMULADOR DE SO MULTITAREFA - 2026     " << std::endl;
-    std::cout << "==========================================" << std::endl;
+    std::cout << "====================================" << std::endl;
+    std::cout << "   SIMULADOR DE SO MULTITAREFA      " << std::endl;
+    std::cout << "====================================" << std::endl;
 
     /* Carrega o arquivo de configuracao (Requisito 3.3) */
-    std::string caminho;
-    std::cout << "\nArquivo de configuracao [config.txt]: ";
-    std::getline(std::cin, caminho);
-    if (caminho.empty()) caminho = "config.txt";
-
-    Config config(caminho);
+    Config config("config.txt");
 
     /* Menu de configuracao pre-simulacao (Requisito 3.1) */
     std::cout << "\nRevise e ajuste a configuracao antes de iniciar." << std::endl;
@@ -317,6 +266,8 @@ int main() {
         std::cout << "\nExecutando simulacao completa..." << std::endl;
         simulador.run_complete();
         simulador.imprimir_status();
+        GanttChart::exibir_terminal(simulador.get_gantt_log());
+        GanttChart::exportar_svg(simulador.get_gantt_log());
         return 0;
     }
 
@@ -352,6 +303,7 @@ int main() {
                 /* Avanca um tick e salva snapshot para possivel retrocesso */
                 simulador.step_forward();
                 simulador.imprimir_status();
+                GanttChart::exibir_terminal(simulador.get_gantt_log());
                 break;
 
             case 'R':
@@ -359,6 +311,7 @@ int main() {
                 simulador.step_backward();
                 conclusao_exibida = false; // simulacao pode nao estar mais concluida
                 simulador.imprimir_status();
+                GanttChart::exibir_terminal(simulador.get_gantt_log());
                 break;
 
             case 'I':
@@ -374,6 +327,7 @@ int main() {
 
             case 'S':
                 std::cout << "Saindo da simulacao." << std::endl;
+                GanttChart::exportar_svg(simulador.get_gantt_log());
                 return 0;
 
             default:

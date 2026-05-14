@@ -7,6 +7,7 @@
 #include "Task.h"
 #include "CPU.h"
 #include "Scheduler.h"
+#include "GanttLog.h"
 
 // Snapshot — foto completa do sistema em um tick, usada para retroceder (Requisito 1.5.2)
 struct Snapshot {
@@ -35,6 +36,8 @@ private:
 
     std::vector<Snapshot> historico; // pilha de estados para retroceder
 
+    GanttLog gantt_log; // historico de estados para o Gantt (Requisito 2)
+
     // Métodos auxiliares privados
     void verificar_chegada_tarefas(); // move tarefas de all_tasks para prontos
     void salvar_estado();             // registra snapshot no histórico
@@ -56,6 +59,7 @@ public:
     // Getters para a interface gráfica
     const std::vector<CPU>&   get_cpus()      const { return cpus; }
     const std::vector<Task*>& get_all_tasks() const { return all_tasks; }
+    const GanttLog&           get_gantt_log() const { return gantt_log; }
 
     void imprimir_status();
 
