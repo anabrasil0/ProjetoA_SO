@@ -2,14 +2,15 @@
 #include <string>
 #include <vector>
 
-// Estrutura com os dados brutos de uma tarefa lidos do arquivo de configuração
+// Estrutura com os dados brutos de uma tarefa lidos do arquivo de configuração.
+// É usada pelo Config para armazenar os valores antes de criar os objetos Task.
 struct TaskData {
-    int         id;
-    std::string cor;
-    int         ingresso;
-    int         duracao;
-    int         prioridade;
-    std::string lista_eventos; // reservado para o Projeto B
+    int         id;            // identificador único da tarefa
+    std::string cor;           // cor RGB hex para o Gantt (ex: "FF0000")
+    int         ingresso;      // tick de chegada ao sistema
+    int         duracao;       // tempo total de execução em ticks
+    int         prioridade;    // prioridade estática (usada pelo PRIOP)
+    std::string lista_eventos; // reservado para eventos de I/O do Projeto B
 };
 
 // Classe Config — lê e armazena os parâmetros da simulação a partir de um

@@ -13,49 +13,6 @@
 SRTFScheduler::SRTFScheduler(int quantum) : Scheduler(quantum) {}
 
 // ============================================================
-// srtf_melhor — comparador local (auxiliar de escalonar)
-// Retorna true se a tarefa 'a' deve ser preferida em relacao a 'b'.
-// Usado como predicado de std::min_element para encontrar a melhor
-// candidata na fila de prontos.
-//
-// O parametro 'atual' e a tarefa que ja esta executando na CPU;
-// ele permite aplicar o criterio de evitar troca desnecessaria quando
-// duas tarefas empatam no tempo restante.
-// ============================================================
-static bool srtf_melhor(Task* a, Task* b, Task* atual) {
-
-    // Criterio 1: menor tempo restante — regra fundamental do SRTF.
-    // A tarefa mais proxima de terminar tem prioridade maxima.
-    if (a->get_tempo_restante() != b->get_tempo_restante())
-        return a->get_tempo_restante() < b->get_tempo_restante();
-
-    // Criterio 2 (empate de tempo restante): evita troca de contexto desnecessaria.
-    // Se 'a' ou 'b' ja esta executando, mante-la e mais eficiente do que trocar.
-    if (atual != nullptr) {
-        if (a == atual) return true;  // 'a' ja esta rodando; prefere mante-la
-        if (b == atual) return false; // 'b' ja esta rodando; prefere mante-la
-    }
-
-    // Criterio 3 (ainda empatado): quem chegou primeiro ao sistema tem prioridade.
-    // Favorece tarefas mais antigas, reduzindo o risco de starvation.
-    if (a->get_tempo_ingresso() != b->get_tempo_ingresso())
-        return a->get_tempo_ingresso() < b->get_tempo_ingresso();
-
-    // Criterio 4 (ainda empatado): menor duracao total original.
-    // Entre tarefas identicas em todos os outros aspectos, prefere a mais curta.
-    if (a->get_duracao() != b->get_duracao())
-        return a->get_duracao() < b->get_duracao();
-
-    // Criterio 5 (desempate final): sorteio aleatorio.
-    // Garante que o algoritmo sempre tome uma decisao mesmo no pior caso.
-    bool sorteio = (rand() % 2 == 0); // 50% de chance para cada tarefa
-    std::cout << "[SORTEIO] Entre T" << a->get_id()
-              << " e T" << b->get_id()
-              << " -> venceu T" << (sorteio ? a->get_id() : b->get_id()) << std::endl;
-    return sorteio;
-}
-
-// ============================================================
 // escalonar — PUBLICO (Requisito 4)
 // Percorre todas as CPUs e decide qual tarefa executa em cada uma.
 // Para cada CPU, quatro situacoes sao tratadas nessa ordem:
@@ -66,12 +23,16 @@ static bool srtf_melhor(Task* a, Task* b, Task* atual) {
 //   (c) CPU ociosa: atribui a melhor tarefa ou desliga se fila vazia.
 //   (d) CPU ocupada: preempta se houver tarefa com tempo restante menor.
 //
-// Toda a logica de preempcao e desligamento fica aqui, no scheduler,
-// mantendo o Simulador livre de regras de politica.
+// O comparador srtf_melhor e definido como lambda dentro deste metodo
+// para que possa registrar sorteios diretamente em sorteio_ids (membro
+// herdado de Scheduler), sem precisar de variaveis globais ou estaticas.
 // ============================================================
 void SRTFScheduler::escalonar(std::vector<Task*>& prontos,
                                std::vector<CPU>& cpus,
                                int relogio_global) {
+
+    // Descarta sorteios do tick anterior antes de registrar os novos
+    limpar_sorteios();
 
     for (CPU& cpu : cpus) {
 
@@ -106,20 +67,57 @@ void SRTFScheduler::escalonar(std::vector<Task*>& prontos,
         Task* tarefa_atual = cpu.get_tarefa_atual(); // tarefa em execucao agora (ou nullptr)
 
         // --------------------------------------------------------
+        // Comparador SRTF com registro de sorteios (Requisito 4.3)
+        // Definido como lambda para capturar tarefa_atual (por valor,
+        // pois muda a cada CPU) e sorteio_ids (via this, por referencia).
+        //
+        // Criterios em ordem:
+        //   1. Menor tempo restante (regra fundamental do SRTF)
+        //   2. Tarefa ja executando (evita troca de contexto desnecessaria)
+        //   3. Menor instante de ingresso (quem chegou antes)
+        //   4. Menor duracao total
+        //   5. Sorteio — registrado em sorteio_ids para aparecer no Gantt
+        // --------------------------------------------------------
+        auto srtf_melhor = [this, tarefa_atual](Task* a, Task* b) -> bool {
+
+            // Criterio 1: menor tempo restante
+            if (a->get_tempo_restante() != b->get_tempo_restante())
+                return a->get_tempo_restante() < b->get_tempo_restante();
+
+            // Criterio 2: evita troca de contexto desnecessaria
+            if (tarefa_atual != nullptr) {
+                if (a == tarefa_atual) return true;
+                if (b == tarefa_atual) return false;
+            }
+
+            // Criterio 3: menor instante de ingresso
+            if (a->get_tempo_ingresso() != b->get_tempo_ingresso())
+                return a->get_tempo_ingresso() < b->get_tempo_ingresso();
+
+            // Criterio 4: menor duracao total
+            if (a->get_duracao() != b->get_duracao())
+                return a->get_duracao() < b->get_duracao();
+
+            // Criterio 5: sorteio aleatorio — registra o vencedor para o Gantt
+            bool sorteio = (rand() % 2 == 0);
+            int vencedor_id = sorteio ? a->get_id() : b->get_id();
+            sorteio_ids.insert(vencedor_id); // std::set evita duplicatas
+            std::cout << "[SORTEIO] Entre T" << a->get_id()
+                      << " e T" << b->get_id()
+                      << " -> venceu T" << vencedor_id << std::endl;
+            return sorteio;
+        };
+
+        // --------------------------------------------------------
         // (c) CPU ociosa (ligada, sem tarefa)
-        // Busca a melhor tarefa na fila de prontos usando srtf_melhor.
+        // Busca a tarefa com menor tempo restante usando srtf_melhor.
         // Se a fila estiver vazia, desliga a CPU para economizar recursos.
         // --------------------------------------------------------
         if (!cpu.esta_ocupada()) {
 
             if (!prontos.empty()) {
                 // Encontra a tarefa com menor tempo restante na fila de prontos
-                auto it = std::min_element(
-                    prontos.begin(), prontos.end(),
-                    [tarefa_atual](Task* a, Task* b) {
-                        return srtf_melhor(a, b, tarefa_atual);
-                    }
-                );
+                auto it = std::min_element(prontos.begin(), prontos.end(), srtf_melhor);
 
                 Task* escolhida = *it;            // tarefa selecionada para executar
                 prontos.erase(it);                // remove da fila de prontos
@@ -135,20 +133,13 @@ void SRTFScheduler::escalonar(std::vector<Task*>& prontos,
         // (d) CPU ocupada — preempcao por SRTF
         // Compara a melhor candidata da fila com a tarefa em execucao.
         // A troca so ocorre se a candidata tiver tempo restante
-        // ESTRITAMENTE menor — empate mantém a tarefa atual (evita
-        // troca de contexto desnecessaria, criterio 2 de srtf_melhor).
+        // ESTRITAMENTE menor — empate mantém a tarefa atual.
         // --------------------------------------------------------
         else {
 
             if (!prontos.empty()) {
                 // Encontra a melhor candidata na fila de prontos
-                auto it = std::min_element(
-                    prontos.begin(), prontos.end(),
-                    [tarefa_atual](Task* a, Task* b) {
-                        return srtf_melhor(a, b, tarefa_atual);
-                    }
-                );
-
+                auto it = std::min_element(prontos.begin(), prontos.end(), srtf_melhor);
                 Task* candidata = *it;
 
                 // So preempta se a candidata for genuinamente melhor
@@ -163,8 +154,6 @@ void SRTFScheduler::escalonar(std::vector<Task*>& prontos,
                     candidata->set_estado(EXECUTANDO);
                     cpu.set_tarefa_atual(candidata);
                 }
-                // Se candidata.tempo_restante >= atual.tempo_restante: sem preempcao,
-                // a tarefa atual continua rodando normalmente.
             }
         }
     }

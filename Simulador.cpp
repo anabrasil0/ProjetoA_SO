@@ -138,6 +138,34 @@ void Simulador::do_tick() {
             tick_data.entradas.push_back(e); // adiciona a entrada da tarefa ao snapshot
         }
 
+        // Marca as tarefas escolhidas por sorteio neste tick (Requisito 4.3).
+        // O scheduler registra os IDs vencedores em sorteio_ids durante escalonar();
+        // aqui propagamos esse evento para a entrada correspondente no Gantt,
+        // para que GanttChart possa exibir o elemento grafico do sorteio.
+        for (int id : escalonador->get_sorteio_ids()) {
+            for (auto& e : tick_data.entradas) {
+                if (e.tarefa_id == id) { e.evento_sorteio = true; break; }
+            }
+        }
+
+        // Registra o estado de cada CPU neste tick (Requisito 1.2).
+        // Capturado apos escalonar() e antes de processar_ciclo(), refletindo
+        // qual tarefa esta atribuida a cada CPU neste momento.
+        for (size_t i = 0; i < cpus.size(); i++) {
+            EntradaCPU ec;
+            ec.cpu_id = static_cast<int>(i);
+            if (!cpus[i].esta_ligada()) {
+                ec.estado = EstadoCPU::DESLIGADA;
+            } else if (cpus[i].esta_ocupada()) {
+                ec.estado    = EstadoCPU::EXECUTANDO;
+                ec.tarefa_id = cpus[i].get_tarefa_atual()->get_id();
+                ec.cor       = cpus[i].get_tarefa_atual()->get_cor();
+            } else {
+                ec.estado = EstadoCPU::OCIOSA;
+            }
+            tick_data.cpus.push_back(ec);
+        }
+
         gantt_log.registrar(tick_data); // armazena o snapshot no historico do Gantt
     }
 

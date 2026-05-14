@@ -9,17 +9,19 @@
 #include "Scheduler.h"
 #include "GanttLog.h"
 
-// Snapshot — foto completa do sistema em um tick, usada para retroceder (Requisito 1.5.2)
+// Snapshot — foto completa do sistema em um tick, usada para retroceder (Requisito 1.5.2).
+// Salvo por step_forward antes de cada do_tick(); restaurado por step_backward().
 struct Snapshot {
-    int relogio;
-    std::vector<CPU> estado_cpus;
+    int              relogio;       // valor do relogio_global no momento do snapshot
+    std::vector<CPU> estado_cpus;   // copia por valor das CPUs: captura tarefa_atual, ligada, quantum
 
+    // Estado mínimo de cada tarefa necessário para desfazer um tick
     struct TaskState {
-        int    id;
-        int    tempo_restante;
-        Estado estado;
+        int    id;             // identifica a qual tarefa este estado pertence
+        int    tempo_restante; // progresso a ser restaurado (quanto faltava naquele tick)
+        Estado estado;         // posição no ciclo de vida a ser restaurada
     };
-    std::vector<TaskState> estado_tarefas;
+    std::vector<TaskState> estado_tarefas; // um TaskState para cada tarefa do sistema
 };
 
 class Simulador {

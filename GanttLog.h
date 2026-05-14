@@ -19,12 +19,24 @@ struct EntradaGantt {
     int         cpu_id;        // indice da CPU (-1 se nao estiver executando)
     bool        evento_chegada = false;  // tarefa chegou neste tick (Requisito 2.2)
     bool        evento_termino = false;  // tarefa termina neste tick (Requisito 2.2)
+    bool        evento_sorteio = false;  // tarefa foi escolhida por sorteio neste tick (Requisito 4.3)
+};
+
+// Estado de uma CPU em um tick especifico (para a linha de CPUs no Gantt)
+enum class EstadoCPU { DESLIGADA, OCIOSA, EXECUTANDO };
+
+struct EntradaCPU {
+    int         cpu_id;
+    EstadoCPU   estado;
+    int         tarefa_id  = -1;       // ID da tarefa em execucao (-1 se nao houver)
+    std::string cor        = "FFFFFF"; // cor da tarefa em execucao (para colorir a celula)
 };
 
 // Snapshot do sistema inteiro em um tick
 struct TickGantt {
     int tick;
     std::vector<EntradaGantt> entradas; // uma entrada por tarefa
+    std::vector<EntradaCPU>   cpus;     // uma entrada por CPU (Requisito 1.2)
 };
 
 // ============================================================
