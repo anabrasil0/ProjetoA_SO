@@ -9,6 +9,7 @@
 static const std::string ALGORITMO_PADRAO = "PRIOP";
 static const int         QUANTUM_PADRAO   = 2;
 static const int         CPUS_PADRAO      = 2;
+static const int         ALPHA_PADRAO     = 1; // taxa de envelhecimento padrao para PRIOPEnv
 
 // ============================================================
 // Construtor
@@ -18,6 +19,7 @@ Config::Config(const std::string& caminho_arquivo) {
     algoritmo = ALGORITMO_PADRAO;
     quantum   = QUANTUM_PADRAO;
     qtde_cpus = CPUS_PADRAO;
+    alpha     = ALPHA_PADRAO;
 
     parse(caminho_arquivo);
 }
@@ -62,9 +64,12 @@ void Config::parse(const std::string& caminho_arquivo) {
 
         if (primeira_linha) {
             // Linha 1: parâmetros gerais do sistema
+            // Formato base: algoritmo;quantum;qtde_cpus
+            // Formato PRIOPEnv: PRIOPEnv;quantum;qtde_cpus;alpha  (Projeto B Req. 1.1)
             if (campos.size() >= 1) algoritmo = para_maiusculas(campos[0]);
             if (campos.size() >= 2) quantum   = std::stoi(campos[1]);
             if (campos.size() >= 3) qtde_cpus = std::stoi(campos[2]);
+            if (campos.size() >= 4) alpha     = std::stoi(campos[3]); // so presente no PRIOPEnv
             primeira_linha = false;
         } 
         else {
@@ -94,7 +99,9 @@ void Config::parse(const std::string& caminho_arquivo) {
     std::cout << "Configuracao carregada: algoritmo=" << algoritmo
               << " quantum=" << quantum
               << " cpus=" << qtde_cpus
-              << " tarefas=" << tarefas.size() << std::endl;
+              << " tarefas=" << tarefas.size();
+    if (algoritmo == "PRIOPENV") std::cout << " alpha=" << alpha;
+    std::cout << std::endl;
 }
 
 // ============================================================
@@ -129,6 +136,7 @@ std::string Config::para_maiusculas(std::string s) const {
 std::string Config::get_algoritmo() const { return algoritmo; }
 int Config::get_quantum()   const { return quantum; }
 int Config::get_cpus()      const { return qtde_cpus; }
+int Config::get_alpha()     const { return alpha; }
 
 const std::vector<TaskData>& Config::get_tarefas() const { return tarefas; }
 
@@ -138,6 +146,7 @@ const std::vector<TaskData>& Config::get_tarefas() const { return tarefas; }
 void Config::set_algoritmo(const std::string& alg) { algoritmo = para_maiusculas(alg); }
 void Config::set_quantum(int q)                    { quantum   = q; }
 void Config::set_cpus(int n)                       { qtde_cpus = n; }
+void Config::set_alpha(int a)                      { alpha     = a; }
 
 void Config::adicionar_tarefa(const TaskData& td) {
     tarefas.push_back(td);

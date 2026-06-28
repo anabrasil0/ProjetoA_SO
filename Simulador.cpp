@@ -1,6 +1,7 @@
 #include "Simulador.h"
 #include "SRTFScheduler.h"
 #include "PRIOPScheduler.h"
+#include "PRIOPEnvScheduler.h"
 #include <iostream>
 #include <algorithm>
 
@@ -25,6 +26,11 @@ Simulador::Simulador(Config& config) {
     else if (algoritmo == "PRIOP") {
         escalonador = new PRIOPScheduler(q); // Preemptivo por Prioridades
     }
+    else if (algoritmo == "PRIOPENV") {
+        // Preemptivo por Prioridades com Envelhecimento (Projeto B Req. 1)
+        // O alpha e lido do config e controla quanto a prioridade efetiva cresce por tick de espera
+        escalonador = new PRIOPEnvScheduler(q, config.get_alpha());
+    }
     else {
         // Algoritmo desconhecido no arquivo: usa PRIOP como fallback seguro
         std::cout << "Aviso: Algoritmo desconhecido. Usando PRIOP por padrao." << std::endl;
@@ -47,7 +53,8 @@ Simulador::Simulador(Config& config) {
             t_data.ingresso,
             t_data.duracao,
             t_data.prioridade,
-            t_data.cor       // cor hex para identificacao no Gantt
+            t_data.cor,          // cor hex para identificacao no Gantt
+            t_data.lista_eventos // string bruta; parseada em Evento[] no construtor de Task
         );
         all_tasks.push_back(nova_task); // adiciona ao vetor de todas as tarefas do sistema
     }
@@ -86,71 +93,81 @@ Simulador::~Simulador() {
 // ============================================================
 void Simulador::do_tick() {
 
+    // Passo 0: acorda tarefas que concluiram operacao de E/S neste tick (IRQ simulado, Req. 3).
+    // Executado ANTES do escalonamento para que tarefas acordadas sejam imediatamente candidatas.
+    verificar_conclusao_io();
+
     // Passo 1: admite na fila de prontos todas as tarefas cujo ingresso == tick atual
     verificar_chegada_tarefas();
 
     // Passo 2: escalonador decide qual tarefa vai para cada CPU (Requisito 4)
-    // O scheduler pode preemptar a tarefa atual, atribuir novas ou desligar CPUs.
     escalonador->escalonar(prontos, cpus, relogio_global);
 
-    // Passo 3: registra o estado atual no Gantt APOS o escalonamento e ANTES de executar.
-    // Dessa forma o Gantt mostra a tarefa que esta "prestes a rodar" neste tick,
-    // nao a que estava rodando antes do escalonamento.
+    // Passo 3: processa eventos (mutex e E/S) das tarefas em execucao neste tick (Req. 2 e 3).
+    // Os eventos disparam quando ticks_executados da tarefa == evento.tempo_relativo.
+    // Eventos sao verificados APOS o escalonamento e ANTES de processar_ciclo(),
+    // garantindo a ordenacao: "primeiro (re)iniciar a tarefa, depois a acao" (Req. 2.6).
+    // Se uma tarefa bloqueia (ML falhou ou IO iniciou), ela e retirada da CPU aqui mesmo.
+    std::vector<EventoTick> eventos_tick;
+    processar_eventos(eventos_tick);
+
+    // Passo 4: registra o estado atual no Gantt apos escalonamento e eventos, antes de executar.
     {
         TickGantt tick_data;
-        tick_data.tick = relogio_global; // numero do tick atual
+        tick_data.tick = relogio_global;
 
-        // Para cada tarefa do sistema, gera uma entrada no snapshot do Gantt
         for (Task* t : all_tasks) {
             EntradaGantt e;
             e.tarefa_id = t->get_id();
-            e.cor       = t->get_cor(); // cor para colorir o bloco no grafico
-            e.cpu_id    = -1;           // -1 = nao esta em nenhuma CPU
+            e.cor       = t->get_cor();
+            e.cpu_id    = -1;
 
-            // Verifica em qual CPU (se alguma) esta tarefa esta executando
             for (size_t i = 0; i < cpus.size(); i++) {
                 if (cpus[i].esta_ocupada() && cpus[i].get_tarefa_atual() == t) {
-                    e.cpu_id = static_cast<int>(i); // indice da CPU que a executa
+                    e.cpu_id = static_cast<int>(i);
                     break;
                 }
             }
 
-            // Define o tipo de entrada conforme o estado/posicao da tarefa
+            Estado est = t->get_estado();
             if (e.cpu_id >= 0) {
                 e.tipo = TipoGantt::EXECUTANDO;
-                // Detecta termino: se tempo_restante == 1 agora, chegara a 0 apos processar_ciclo
                 e.evento_termino = (t->get_tempo_restante() == 1);
-            } else if (t->get_estado() == FINALIZADA) {
+            } else if (est == FINALIZADA) {
                 e.tipo = TipoGantt::FINALIZADA;
-            } else if (t->get_estado() == PRONTA) {
-                e.tipo = TipoGantt::PRONTA;    // aguardando na fila de prontos
-            } else if (t->get_estado() == CRIADA) {
-                e.tipo = TipoGantt::NAO_CHEGOU; // ainda nao entrou no sistema
+            } else if (est == PRONTA) {
+                e.tipo = TipoGantt::PRONTA;
+            } else if (est == CRIADA) {
+                e.tipo = TipoGantt::NAO_CHEGOU;
+            } else if (est == SUSPENSA_MUTEX) {
+                e.tipo = TipoGantt::SUSPENSA_MUTEX; // bloco visual distinto (Req. 2.9)
+            } else if (est == SUSPENSA_IO) {
+                e.tipo = TipoGantt::SUSPENSA_IO;    // bloco visual distinto (Req. 2.9)
             } else {
-                e.tipo = TipoGantt::SUSPENSA;   // bloqueada (reservado para Projeto B)
+                e.tipo = TipoGantt::PRONTA;
             }
 
-            // Detecta chegada: tarefa entrou neste tick exato
-            // O estado NAO_CHEGOU e excluido pois significa que o ingresso ainda nao ocorreu
             e.evento_chegada = (t->get_tempo_ingresso() == relogio_global &&
                                 e.tipo != TipoGantt::NAO_CHEGOU);
 
-            tick_data.entradas.push_back(e); // adiciona a entrada da tarefa ao snapshot
+            // Propaga eventos deste tick para o Gantt (Req. 2.8 e 3)
+            for (const auto& et : eventos_tick) {
+                if (et.tarefa_id == t->get_id()) {
+                    if      (et.tipo == TipoRegistroTick::MUTEX_LOCK)   e.evento_mutex_lock   = true;
+                    else if (et.tipo == TipoRegistroTick::MUTEX_UNLOCK) e.evento_mutex_unlock = true;
+                    else if (et.tipo == TipoRegistroTick::IO_INICIO)    e.evento_io           = true;
+                }
+            }
+
+            tick_data.entradas.push_back(e);
         }
 
-        // Marca as tarefas escolhidas por sorteio neste tick (Requisito 4.3).
-        // O scheduler registra os IDs vencedores em sorteio_ids durante escalonar();
-        // aqui propagamos esse evento para a entrada correspondente no Gantt,
-        // para que GanttChart possa exibir o elemento grafico do sorteio.
         for (int id : escalonador->get_sorteio_ids()) {
             for (auto& e : tick_data.entradas) {
                 if (e.tarefa_id == id) { e.evento_sorteio = true; break; }
             }
         }
 
-        // Registra o estado de cada CPU neste tick (Requisito 1.2).
-        // Capturado apos escalonar() e antes de processar_ciclo(), refletindo
-        // qual tarefa esta atribuida a cada CPU neste momento.
         for (size_t i = 0; i < cpus.size(); i++) {
             EntradaCPU ec;
             ec.cpu_id = static_cast<int>(i);
@@ -166,28 +183,155 @@ void Simulador::do_tick() {
             tick_data.cpus.push_back(ec);
         }
 
-        gantt_log.registrar(tick_data); // armazena o snapshot no historico do Gantt
+        gantt_log.registrar(tick_data);
     }
 
-    // Passo 4: notifica cada CPU para avançar seu estado interno em um ciclo.
-    // processar_ciclo() decrementa o tempo restante das tarefas em execucao e
-    // detecta finalizacoes. O relogio ja foi "disparado" pelo Simulador; a CPU
-    // apenas responde a ele.
+    // Passo 5: cada CPU executa um ciclo (decrementa tempo_restante, incrementa ticks_executados)
     for (size_t i = 0; i < cpus.size(); i++) {
         cpus[i].processar_ciclo();
     }
 
-    // Passo 5: remove da fila de prontos as tarefas que finalizaram neste ciclo.
-    // Uma tarefa pode ter sido finalizada dentro de processar_ciclo() (tempo esgotado).
-    // Manter ela na fila causaria decisoes erradas do scheduler no proximo tick.
+    // Passo 6: remove da fila de prontos tarefas finalizadas neste ciclo
     prontos.erase(
         std::remove_if(prontos.begin(), prontos.end(),
             [](Task* t) { return t->get_estado() == FINALIZADA; }),
         prontos.end()
     );
 
-    // Passo 6: avanca o relogio global para o proximo tick (Requisito 1.1)
+    // Passo 7: avanca o relogio global
     relogio_global++;
+}
+
+// ============================================================
+// processar_eventos — PRIVADO (Req. 2 e 3)
+// Verifica e executa eventos (mutex e E/S) para todas as tarefas em execucao.
+// Chamado apos escalonar() e antes de processar_ciclo(), garantindo que:
+//   - A tarefa ja foi (re)iniciada na CPU (por escalonar()), e
+//   - Os eventos do instante atual (ticks_executados == tempo_relativo) disparam.
+//
+// Para cada CPU com tarefa: itera pelos eventos a partir de indice_proximo_evento.
+// Para o mesmo ticks_executados, executa todos os eventos em ordem (Req. 2.5).
+// Se uma tarefa bloqueia (ML falhou ou IO iniciou), para de processar (saiu da CPU).
+// ============================================================
+void Simulador::processar_eventos(std::vector<EventoTick>& out) {
+    for (CPU& cpu : cpus) {
+        if (!cpu.esta_ocupada()) continue;
+        Task* t = cpu.get_tarefa_atual();
+
+        const auto& evs = t->get_eventos();
+        int idx = t->get_indice_proximo_evento();
+
+        while (idx < (int)evs.size()) {
+            const Evento& ev = evs[idx];
+
+            // So processa eventos cujo tempo_relativo == ticks_executados atual
+            if (ev.tempo_relativo != t->get_ticks_executados()) break;
+
+            // Avanca o indice antes de executar — garante avanco mesmo se houver
+            // retorno antecipado (tarefa bloqueada) dentro do loop
+            t->avancar_indice_evento();
+            idx++;
+
+            if (ev.tipo == TipoEvento::MUTEX_LOCK) {
+                out.push_back({t->get_id(), TipoRegistroTick::MUTEX_LOCK});
+
+                MutexSim* mx = encontrar_ou_criar_mutex(ev.mutex_id);
+                bool adquiriu = mx->tentar_lock(t->get_id());
+
+                if (!adquiriu) {
+                    // Mutex ocupado: suspende a tarefa e libera a CPU (Req. 2.7)
+                    t->set_estado(SUSPENSA_MUTEX);
+                    t->set_mutex_aguardando_id(ev.mutex_id);
+                    cpu.set_tarefa_atual(nullptr); // CPU fica ociosa; nao executara tick
+                    break; // tarefa saiu da CPU: nao ha mais eventos a processar agora
+                }
+                // Adquiriu com sucesso: continua processando proximos eventos do mesmo tick
+
+            } else if (ev.tipo == TipoEvento::MUTEX_UNLOCK) {
+                out.push_back({t->get_id(), TipoRegistroTick::MUTEX_UNLOCK});
+
+                MutexSim* mx = encontrar_mutex(ev.mutex_id);
+                if (mx) {
+                    int next_id = mx->unlock(t->get_id());
+                    if (next_id != -1) {
+                        Task* prox = encontrar_tarefa(next_id);
+                        if (prox) {
+                            // Tarefa despertada: volta a fila de prontos (Req. 2.7)
+                            prox->set_estado(PRONTA);
+                            prox->set_mutex_aguardando_id(-1);
+                            prontos.push_back(prox);
+                        }
+                    }
+                }
+                // Continua processando proximos eventos do mesmo tick
+
+            } else if (ev.tipo == TipoEvento::IO_INICIO) {
+                out.push_back({t->get_id(), TipoRegistroTick::IO_INICIO});
+
+                // Calcula o tick global em que a E/S conclui (Req. 3.2)
+                // io_tick_conclusao = relogio_global + io_duracao
+                // Duracao 1 significa suspenso este tick; acorda no proximo.
+                t->set_io_tick_conclusao(relogio_global + ev.io_duracao);
+                t->set_estado(SUSPENSA_IO);
+                cpu.set_tarefa_atual(nullptr); // CPU fica ociosa durante a E/S
+                std::cout << "[Tick " << relogio_global << "] Tarefa " << t->get_id()
+                          << " iniciou E/S (duracao " << ev.io_duracao
+                          << " ticks; conclui no tick " << (relogio_global + ev.io_duracao)
+                          << ")." << std::endl;
+                break; // tarefa saiu da CPU: nao ha mais eventos a processar agora
+            }
+        }
+    }
+}
+
+// ============================================================
+// verificar_conclusao_io — PRIVADO (Req. 3)
+// Verifica se alguma tarefa em estado SUSPENSA_IO teve sua operacao
+// de E/S concluida neste tick (io_tick_conclusao == relogio_global).
+// A tarefa e acordada e inserida de volta na fila de prontos para
+// ser escalonada imediatamente no mesmo tick (IRQ simulado).
+// Chamado NO INICIO de do_tick(), antes de escalonar().
+// ============================================================
+void Simulador::verificar_conclusao_io() {
+    for (Task* t : all_tasks) {
+        if (t->get_estado() == SUSPENSA_IO &&
+            t->get_io_tick_conclusao() == relogio_global) {
+            t->set_estado(PRONTA);
+            t->set_io_tick_conclusao(-1);
+            prontos.push_back(t);
+            std::cout << "[Tick " << relogio_global << "] Tarefa " << t->get_id()
+                      << " concluiu E/S e voltou para a fila de prontos." << std::endl;
+        }
+    }
+}
+
+// ============================================================
+// encontrar_ou_criar_mutex — PRIVADO
+// Retorna ponteiro para o MutexSim com o ID dado, criando-o caso nao exista.
+// Mutexes sao criados lentamente (lazy) na primeira vez que sao referenciados.
+// ATENCAO: apos push_back o vetor pode realocar, invalidando ponteiros anteriores.
+// Por isso chamamos encontrar_ou_criar_mutex uma vez por evento, sem guardar ponteiros.
+// ============================================================
+MutexSim* Simulador::encontrar_ou_criar_mutex(int mutex_id) {
+    for (auto& m : mutexes) {
+        if (m.get_id() == mutex_id) return &m;
+    }
+    mutexes.push_back(MutexSim(mutex_id));
+    return &mutexes.back();
+}
+
+MutexSim* Simulador::encontrar_mutex(int mutex_id) {
+    for (auto& m : mutexes) {
+        if (m.get_id() == mutex_id) return &m;
+    }
+    return nullptr;
+}
+
+Task* Simulador::encontrar_tarefa(int tarefa_id) {
+    for (Task* t : all_tasks) {
+        if (t->get_id() == tarefa_id) return t;
+    }
+    return nullptr;
 }
 
 // ============================================================
@@ -230,15 +374,29 @@ void Simulador::step_backward() {
     relogio_global = ultimo_estado.relogio;
     cpus           = ultimo_estado.estado_cpus; // copia por valor restaura todos os campos
 
-    // Restaura o estado interno de cada tarefa (tempo_restante, estado) pelo ID
-    for (const auto& s_task : ultimo_estado.estado_tarefas) {
+    // Restaura o estado interno de cada tarefa
+    for (const auto& ts : ultimo_estado.estado_tarefas) {
         for (Task* t : all_tasks) {
-            if (t->get_id() == s_task.id) {
-                t->set_tempo_restante(s_task.tempo_restante); // progresso desfeito
-                t->set_estado(s_task.estado);                 // estado desfeito
+            if (t->get_id() == ts.id) {
+                t->set_tempo_restante(ts.tempo_restante);
+                t->set_estado(ts.estado);
+                t->set_idade(ts.idade);
+                t->set_ticks_executados(ts.ticks_executados);
+                t->set_indice_proximo_evento(ts.indice_proximo_evento);
+                t->set_mutex_aguardando_id(ts.mutex_aguardando_id);
+                t->set_io_tick_conclusao(ts.io_tick_conclusao);
                 break;
             }
         }
+    }
+
+    // Restaura o estado dos mutexes (Req. 2 — step_backward)
+    mutexes.clear();
+    for (const auto& ms : ultimo_estado.estado_mutexes) {
+        MutexSim m(ms.mutex_id);
+        m.set_dono_id(ms.dono_id);
+        m.set_fila(ms.fila_ids);
+        mutexes.push_back(m);
     }
 
     // Reconstroi a fila de prontos a partir do estado restaurado.
@@ -302,16 +460,30 @@ void Simulador::salvar_estado() {
     snap.relogio     = relogio_global;
     snap.estado_cpus = cpus; // copia por valor captura: tarefa_atual, ligada, quantum, ociosa
 
-    // Captura o estado relevante de cada TCB para poder restaura-lo depois
+    // Captura o estado relevante de cada TCB
     for (Task* t : all_tasks) {
-        Snapshot::TaskState t_state;
-        t_state.id             = t->get_id();
-        t_state.tempo_restante = t->get_tempo_restante(); // progresso atual da tarefa
-        t_state.estado         = t->get_estado();         // posicao no ciclo de vida
-        snap.estado_tarefas.push_back(t_state);
+        Snapshot::TaskState ts;
+        ts.id                   = t->get_id();
+        ts.tempo_restante       = t->get_tempo_restante();
+        ts.estado               = t->get_estado();
+        ts.idade                = t->get_idade();
+        ts.ticks_executados     = t->get_ticks_executados();
+        ts.indice_proximo_evento = t->get_indice_proximo_evento();
+        ts.mutex_aguardando_id  = t->get_mutex_aguardando_id();
+        ts.io_tick_conclusao    = t->get_io_tick_conclusao();
+        snap.estado_tarefas.push_back(ts);
     }
 
-    historico.push_back(snap); // empilha o snapshot para uso futuro em step_backward
+    // Captura o estado de cada mutex (Req. 2 — step_backward)
+    for (const auto& m : mutexes) {
+        Snapshot::MutexState ms;
+        ms.mutex_id  = m.get_id();
+        ms.dono_id   = m.get_dono_id();
+        ms.fila_ids  = m.get_fila();
+        snap.estado_mutexes.push_back(ms);
+    }
+
+    historico.push_back(snap);
 }
 
 // ============================================================
@@ -332,7 +504,7 @@ bool Simulador::simulacao_concluida() const {
         if (cpu.esta_ocupada()) return false;
     }
 
-    // Condicao 3: alguma tarefa ainda nao chegou ou esta em progresso
+    // Condicao 3: alguma tarefa ainda nao chegou, esta em progresso ou suspensa
     for (const Task* t : all_tasks) {
         if (t->get_estado() != FINALIZADA) return false;
     }
@@ -392,6 +564,21 @@ void Simulador::modificar_estado_tarefa(int id, Estado novo_estado) {
                 cpu.set_tarefa_atual(nullptr); // CPU fica ociosa ate o proximo escalonamento
             }
         }
+    }
+
+    // Se a tarefa estava suspensa por mutex, remove-a da fila de espera do mutex
+    if (alvo->get_estado() == SUSPENSA_MUTEX) {
+        int mid = alvo->get_mutex_aguardando_id();
+        MutexSim* mx = encontrar_mutex(mid);
+        if (mx) {
+            // Reconstroi a fila sem este task_id
+            std::vector<int> nova_fila;
+            for (int fid : mx->get_fila()) {
+                if (fid != id) nova_fila.push_back(fid);
+            }
+            mx->set_fila(nova_fila);
+        }
+        alvo->set_mutex_aguardando_id(-1);
     }
 
     std::cout << "Tarefa " << id << " alterada para "

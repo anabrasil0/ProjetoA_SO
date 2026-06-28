@@ -8,6 +8,7 @@
 #include "CPU.h"
 #include "Scheduler.h"
 #include "GanttLog.h"
+#include "MutexSim.h"
 
 // Snapshot — foto completa do sistema em um tick, usada para retroceder (Requisito 1.5.2).
 // Salvo por step_forward antes de cada do_tick(); restaurado por step_backward().
@@ -17,11 +18,24 @@ struct Snapshot {
 
     // Estado mínimo de cada tarefa necessário para desfazer um tick
     struct TaskState {
-        int    id;             // identifica a qual tarefa este estado pertence
-        int    tempo_restante; // progresso a ser restaurado (quanto faltava naquele tick)
-        Estado estado;         // posição no ciclo de vida a ser restaurada
+        int    id;                   // identifica a qual tarefa este estado pertence
+        int    tempo_restante;       // progresso a ser restaurado
+        Estado estado;               // posição no ciclo de vida
+        int    idade;                // envelhecimento acumulado (PRIOPEnv)
+        int    ticks_executados;     // ticks de CPU consumidos (base para eventos, Req. 2)
+        int    indice_proximo_evento;// proximo evento a verificar
+        int    mutex_aguardando_id;  // mutex que bloqueia a tarefa (-1 = nao bloqueada)
+        int    io_tick_conclusao;    // tick global em que a E/S conclui (-1 = sem E/S, Req. 3)
     };
-    std::vector<TaskState> estado_tarefas; // um TaskState para cada tarefa do sistema
+    std::vector<TaskState> estado_tarefas;
+
+    // Estado de cada mutex no momento do snapshot (Req. 2 — step_backward)
+    struct MutexState {
+        int              mutex_id;  // numero do mutex
+        int              dono_id;   // ID da tarefa dona (-1 = livre)
+        std::vector<int> fila_ids;  // IDs das tarefas aguardando na fila
+    };
+    std::vector<MutexState> estado_mutexes;
 };
 
 class Simulador {
@@ -34,9 +48,11 @@ private:
     std::vector<Task*> all_tasks;   // todas as tarefas carregadas do arquivo (TCBs)
     std::vector<Task*> prontos;     // tarefas aguardando execução
 
-    Scheduler* escalonador;         // algoritmo de escalonamento ativo (polimórfico)
+    Scheduler* escalonador;           // algoritmo de escalonamento ativo (polimórfico)
 
-    std::vector<Snapshot> historico; // pilha de estados para retroceder
+    std::vector<MutexSim> mutexes;    // mutexes criados durante a simulacao (Req. 2)
+
+    std::vector<Snapshot> historico;  // pilha de estados para retroceder
 
     GanttLog gantt_log; // historico de estados para o Gantt (Requisito 2)
 
@@ -44,6 +60,22 @@ private:
     void verificar_chegada_tarefas(); // move tarefas de all_tasks para prontos
     void salvar_estado();             // registra snapshot no histórico
     void do_tick();                   // lógica pura de um tick (sem salvar snapshot)
+
+    // Localiza ou cria um mutex pelo ID; garante que o vetor nunca tenha buracos
+    MutexSim* encontrar_ou_criar_mutex(int mutex_id);
+    MutexSim* encontrar_mutex(int mutex_id);
+    Task*     encontrar_tarefa(int tarefa_id);
+
+    // Processa eventos (mutex e E/S) das tarefas em execucao neste tick (Req. 2 e 3).
+    // Preenche 'out' com registros dos eventos disparados para o Gantt.
+    enum class TipoRegistroTick { MUTEX_LOCK, MUTEX_UNLOCK, IO_INICIO };
+    struct EventoTick { int tarefa_id; TipoRegistroTick tipo; };
+    void processar_eventos(std::vector<EventoTick>& out);
+
+    // Verifica se alguma tarefa em E/S concluiu o I/O neste tick (IRQ simulado, Req. 3).
+    // Chamado no inicio de do_tick(), antes do escalonamento, para que tarefas
+    // acordadas possam ser escalonadas imediatamente.
+    void verificar_conclusao_io();
 
 public:
     Simulador(Config& config);

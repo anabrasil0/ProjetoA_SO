@@ -39,6 +39,10 @@ void CPU::processar_ciclo() {
         tarefa_atual->set_estado(EXECUTANDO); // garante que o estado reflita a execucao
         ticks_no_quantum++;                   // incrementa o uso do quantum desta tarefa
 
+        // Contabiliza mais um tick de CPU consumido por esta tarefa.
+        // ticks_executados e a base para disparar eventos relativos ao inicio (Req. 2.4).
+        tarefa_atual->incrementar_ticks_executados();
+
         // Decrementa o progresso restante da tarefa em 1 tick
         tarefa_atual->set_tempo_restante(tarefa_atual->get_tempo_restante() - 1);
 

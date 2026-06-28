@@ -17,9 +17,10 @@ struct TaskData {
 // arquivo de texto no formato definido pelo Requisito 3.3
 class Config {
 private:
-    std::string algoritmo; // algoritmo de escalonamento ("SRTF" ou "PRIOP")
+    std::string algoritmo; // algoritmo de escalonamento ("SRTF", "PRIOP" ou "PRIOPENV")
     int quantum; // período máximo de execução por tarefa
     int qtde_cpus; // quantidade de processadores
+    int alpha; // taxa de envelhecimento por tick de espera (Projeto B Req. 1); ignorado se nao for PRIOPEnv
     std::vector<TaskData> tarefas; // dados brutos de cada tarefa
 
     // Lê e interpreta o arquivo linha a linha
@@ -39,12 +40,14 @@ public:
     std::string get_algoritmo() const;
     int get_quantum() const;
     int get_cpus() const;
+    int get_alpha() const; // taxa de envelhecimento; relevante apenas para PRIOPEnv
     const std::vector<TaskData>& get_tarefas() const;
 
     // Setters para configuracao interativa pre-simulacao (Requisito 3.1)
     void set_algoritmo(const std::string& alg);
     void set_quantum(int q);
     void set_cpus(int n);
+    void set_alpha(int a);
     void adicionar_tarefa(const TaskData& td);
     bool remover_tarefa(int id);
     bool editar_tarefa(int id, const TaskData& td);

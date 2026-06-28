@@ -66,19 +66,35 @@ static void print_celula(const EntradaGantt* e) {
 
             label = label.substr(0, W);
 
-            // Sorteio: substitui o ultimo caractere por '?' (Requisito 4.3)
-            if (e->evento_sorteio && !label.empty()) label.back() = '?';
+            // Eventos substituem o ultimo char pelo marcador correspondente (Req. 2.8 e 3)
+            if (!label.empty()) {
+                if      (e->evento_mutex_lock)   label.back() = 'L'; // lock de mutex
+                else if (e->evento_mutex_unlock) label.back() = 'U'; // unlock de mutex
+                else if (e->evento_io)           label.back() = 'I'; // inicio de E/S (Req. 3)
+                else if (e->evento_sorteio)      label.back() = '?'; // escolha por sorteio
+            }
 
             std::cout << ansi_bg(r, g, b) << FG_BRANCO << label << RESET;
             break;
         }
 
-        case TipoGantt::PRONTA:
-            std::cout << (e->evento_chegada ? " >>  " : "  .  ");
+        case TipoGantt::PRONTA: {
+            // Mostra 'L' se uma tarefa foi despertada de mutex neste tick (woke up)
+            std::string label = e->evento_chegada ? " >>  " : "  .  ";
+            std::cout << label;
+            break;
+        }
+
+        case TipoGantt::SUSPENSA_MUTEX:
+            // Fundo vermelho escuro; 'L' indica que o motivo e espera de mutex (Req. 2.9)
+            std::cout << ansi_bg(139, 0, 0) << FG_BRANCO
+                      << (e->evento_mutex_lock ? " MLk " : " MUT ") << RESET;
             break;
 
-        case TipoGantt::SUSPENSA:
-            std::cout << ansi_bg(0, 0, 0) << FG_BRANCO << " SUS " << RESET;
+        case TipoGantt::SUSPENSA_IO:
+            // Fundo azul escuro; "IO> " indica primeiro tick de E/S (Req. 2.9 e 3)
+            std::cout << ansi_bg(0, 0, 139) << FG_BRANCO
+                      << (e->evento_io ? " IO> " : " I/O ") << RESET;
             break;
 
         case TipoGantt::FINALIZADA:
@@ -243,9 +259,14 @@ void GanttChart::exibir_terminal(const GanttLog& log) {
     std::cout << "   .   = tarefa aguardando CPU (fila de prontos)\n";
     std::cout << "   >>  = tarefa chegou no sistema neste tick\n";
     std::cout << "   !   = tarefa termina neste tick (ultimo ciclo)\n";
+    std::cout << "   L   = tarefa adquiriu ou tentou adquirir mutex neste tick\n";
+    std::cout << "   U   = tarefa liberou mutex neste tick\n";
+    std::cout << "   I   = tarefa iniciou operacao de E/S neste tick (Req. 3)\n";
     std::cout << "   ?   = tarefa escolhida por sorteio aleatorio neste tick\n";
-    std::cout << "  " << ansi_bg(0,0,0) << FG_BRANCO << " SUS " << RESET
-              << " = tarefa suspensa (bloqueada)\n";
+    std::cout << "  " << ansi_bg(139,0,0) << FG_BRANCO << " MUT " << RESET
+              << " = tarefa suspensa aguardando mutex (Req. 2.9)\n";
+    std::cout << "  " << ansi_bg(0,0,139) << FG_BRANCO << " I/O " << RESET
+              << " = tarefa suspensa aguardando E/S (Req. 2.9)\n";
     std::cout << "   fim = tarefa ja finalizada\n";
     std::cout << "       = tarefa ainda nao chegou\n";
 }
@@ -297,7 +318,7 @@ void GanttChart::exportar_svg(const GanttLog& log, const std::string& filename) 
     int total_grid_h  = (task_rows_y - grid_top) + task_rows_h;
     int footer_num_y  = grid_top + total_grid_h + HDR_H - 5;
     int legend_top    = grid_top + total_grid_h + HDR_H + 12;
-    int legend_rows   = 1 + n_tasks + 2 + 6; // titulo + cores + OFF/- + itens tarefa
+    int legend_rows   = 1 + n_tasks + 2 + 7; // titulo + cores + OFF/- + itens tarefa (incl. I de E/S)
     int svg_w         = MARGIN + LABEL_W + grid_w + MARGIN;
     int svg_h         = legend_top + legend_rows * LEG_ITEM + MARGIN;
 
@@ -483,12 +504,19 @@ void GanttChart::exportar_svg(const GanttLog& log, const std::string& filename) 
                         else
                             label = "CPU" + std::to_string(e->cpu_id + 1);
                         break;
+
                     case TipoGantt::PRONTA:
                         fill = "#f5f5f5"; text_col = "#666";
                         label = e->evento_chegada ? ">>" : ".";
                         break;
-                    case TipoGantt::SUSPENSA:
-                        fill = "#111111"; text_col = "white"; label = "SUS"; break;
+                    case TipoGantt::SUSPENSA_MUTEX:
+                        // Vermelho escuro — bloqueada por mutex (Req. 2.9)
+                        fill = "#8B0000"; text_col = "white";
+                        label = e->evento_mutex_lock ? "MLk" : "MUT";
+                        break;
+                    case TipoGantt::SUSPENSA_IO:
+                        // Azul escuro — bloqueada por E/S (Req. 2.9)
+                        fill = "#00008B"; text_col = "white"; label = "I/O"; break;
                     case TipoGantt::FINALIZADA:
                         fill = "#ebebeb"; text_col = "#aaa";  label = "fim"; break;
                     default: break;
@@ -506,8 +534,23 @@ void GanttChart::exportar_svg(const GanttLog& log, const std::string& filename) 
                   << "fill=\"" << text_col << "\">" << label << "</text>\n";
             }
 
+            // Marcadores no canto superior direito (Req. 2.8 e 3)
+            if (e && (e->evento_mutex_lock || e->evento_mutex_unlock)) {
+                std::string mc = (fill == "white" || fill == "#f5f5f5" || fill == "#ebebeb")
+                                 ? "#8B0000" : "white";
+                std::string ml = e->evento_mutex_lock ? "L" : "U";
+                f << "<text x=\"" << (cx + CELL_W - 3) << "\" y=\"" << (cy + 10) << "\" "
+                  << "font-family=\"monospace\" font-size=\"10\" font-weight=\"bold\" "
+                  << "text-anchor=\"end\" fill=\"" << mc << "\">" << ml << "</text>\n";
+            }
+            // E/S iniciada: pequeno 'I' no canto superior direito (Req. 3)
+            else if (e && e->evento_io) {
+                f << "<text x=\"" << (cx + CELL_W - 3) << "\" y=\"" << (cy + 10) << "\" "
+                  << "font-family=\"monospace\" font-size=\"10\" font-weight=\"bold\" "
+                  << "text-anchor=\"end\" fill=\"white\">I</text>\n";
+            }
             // Sorteio: pequeno "?" no canto superior direito (Requisito 4.3)
-            if (e && e->evento_sorteio) {
+            else if (e && e->evento_sorteio) {
                 std::string sq = (fill == "white" || fill == "#f5f5f5" || fill == "#ebebeb")
                                  ? "#cc4400" : "white";
                 f << "<text x=\"" << (cx + CELL_W - 3) << "\" y=\"" << (cy + 10) << "\" "
@@ -569,12 +612,16 @@ void GanttChart::exportar_svg(const GanttLog& log, const std::string& filename) 
     leg("#f0f0f0", "#bbb", "-",   "processador ocioso (ligado sem tarefa atribuida)");
 
     // Itens de tarefa
-    leg("#f5f5f5", "#bbb", ".",   "tarefa aguardando CPU (fila de prontos)");
-    leg("#f5f5f5", "#bbb", ">>",  "tarefa chegou neste tick");
-    leg("white",   "#bbb", "!",   "tarefa termina neste tick (ultimo ciclo)");
-    leg("white",   "#bbb", "?",   "tarefa escolhida por sorteio aleatorio");
-    leg("#111",    "#111", "SUS", "tarefa suspensa (bloqueada)");
-    leg("#ebebeb", "#bbb", "fim", "tarefa ja finalizada");
+    leg("#f5f5f5", "#bbb", ".",    "tarefa aguardando CPU (fila de prontos)");
+    leg("#f5f5f5", "#bbb", ">>",   "tarefa chegou neste tick");
+    leg("white",   "#bbb", "!",    "tarefa termina neste tick (ultimo ciclo)");
+    leg("white",   "#bbb", "L",    "tarefa adquiriu/tentou mutex neste tick (Req. 2.8)");
+    leg("white",   "#bbb", "U",    "tarefa liberou mutex neste tick (Req. 2.8)");
+    leg("#00008B", "#111", "I",    "tarefa iniciou operacao de E/S neste tick (Req. 3)");
+    leg("white",   "#bbb", "?",    "tarefa escolhida por sorteio aleatorio");
+    leg("#8B0000", "#111", "MUT",  "tarefa suspensa aguardando mutex (Req. 2.9)");
+    leg("#00008B", "#111", "I/O",  "tarefa suspensa aguardando E/S (Req. 2.9)");
+    leg("#ebebeb", "#bbb", "fim",  "tarefa ja finalizada");
 
     f << "</svg>\n";
     f.close();

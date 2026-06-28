@@ -26,11 +26,13 @@
 /* Converte o enum Estado para texto legivel */
 static std::string estado_para_string(Estado e) {
     switch (e) {
-        case CRIADA:     return "CRIADA";
-        case PRONTA:     return "PRONTA";
-        case EXECUTANDO: return "EXECUTANDO";
-        case FINALIZADA: return "FINALIZADA";
-        default:         return "DESCONHECIDO";
+        case CRIADA:         return "CRIADA";
+        case PRONTA:         return "PRONTA";
+        case EXECUTANDO:     return "EXECUTANDO";
+        case SUSPENSA_MUTEX: return "SUSPENSA (mutex)";
+        case SUSPENSA_IO:    return "SUSPENSA (E/S)";
+        case FINALIZADA:     return "FINALIZADA";
+        default:             return "DESCONHECIDO";
     }
 }
 
@@ -85,6 +87,8 @@ static void exibir_config_atual(const Config& config) {
     std::cout << "  Algoritmo : " << config.get_algoritmo() << std::endl;
     std::cout << "  Quantum   : " << config.get_quantum() << " ticks" << std::endl;
     std::cout << "  CPUs      : " << config.get_cpus() << std::endl;
+    if (config.get_algoritmo() == "PRIOPENV")
+        std::cout << "  Alpha     : " << config.get_alpha() << " (envelhecimento/tick)" << std::endl;
     std::cout << "  Tarefas   : " << config.get_tarefas().size() << std::endl;
 }
 
@@ -116,18 +120,25 @@ static void alterar_parametros(Config& config) {
     std::cout << "\n--- ALTERAR PARAMETROS ---" << std::endl;
 
     std::cout << "Algoritmo atual: " << config.get_algoritmo() << std::endl;
-    std::cout << "  [1] SRTF  [2] PRIOP  [Enter] Manter" << std::endl;
+    std::cout << "  [1] SRTF  [2] PRIOP  [3] PRIOPEnv (com envelhecimento)  [Enter] Manter" << std::endl;
     std::cout << "Escolha: ";
     std::string entrada;
     std::getline(std::cin, entrada);
-    if (entrada == "1") config.set_algoritmo("SRTF");
+    if      (entrada == "1") config.set_algoritmo("SRTF");
     else if (entrada == "2") config.set_algoritmo("PRIOP");
+    else if (entrada == "3") config.set_algoritmo("PRIOPENV");
 
     int q = ler_inteiro_com_padrao("Quantum", config.get_quantum());
     if (q > 0) config.set_quantum(q);
 
     int n = ler_inteiro_com_padrao("Numero de CPUs", config.get_cpus());
     if (n > 0) config.set_cpus(n);
+
+    // Alpha so e relevante para PRIOPEnv; oferece configuracao apenas se aplicavel
+    if (config.get_algoritmo() == "PRIOPENV") {
+        int a = ler_inteiro_com_padrao("Alpha (incremento de prioridade por tick de espera)", config.get_alpha());
+        if (a > 0) config.set_alpha(a);
+    }
 
     std::cout << "Parametros atualizados." << std::endl;
 }
@@ -189,11 +200,16 @@ static void inspecionar_tarefa(const Simulador& sim) {
     for (const Task* t : sim.get_all_tasks()) {
         if (t->get_id() == id) {
             std::cout << "\n--- TCB: Tarefa " << id << " ---" << std::endl;
-            std::cout << "  Ingresso       : " << t->get_tempo_ingresso() << std::endl;
-            std::cout << "  Duracao total  : " << t->get_duracao()        << std::endl;
-            std::cout << "  Tempo restante : " << t->get_tempo_restante() << std::endl;
-            std::cout << "  Prioridade     : " << t->get_prioridade()     << std::endl;
-            std::cout << "  Estado         : " << estado_para_string(t->get_estado()) << std::endl;
+            std::cout << "  Ingresso         : " << t->get_tempo_ingresso()        << std::endl;
+            std::cout << "  Duracao total    : " << t->get_duracao()               << std::endl;
+            std::cout << "  Tempo restante   : " << t->get_tempo_restante()        << std::endl;
+            std::cout << "  Prioridade       : " << t->get_prioridade()            << std::endl;
+            std::cout << "  Idade (espera)   : " << t->get_idade()                 << " ticks" << std::endl;
+            std::cout << "  Ticks executados : " << t->get_ticks_executados()      << std::endl;
+            std::cout << "  Eventos restantes: " << (t->get_eventos().size() - t->get_indice_proximo_evento()) << std::endl;
+            if (t->get_mutex_aguardando_id() >= 0)
+                std::cout << "  Aguardando mutex : " << t->get_mutex_aguardando_id() << std::endl;
+            std::cout << "  Estado           : " << estado_para_string(t->get_estado()) << std::endl;
             return;
         }
     }
@@ -239,7 +255,11 @@ int main() {
     std::cout << "====================================" << std::endl;
 
     /* Carrega o arquivo de configuracao (Requisito 3.3) */
-    Config config("config.txt");
+    std::cout << "Arquivo de configuracao: ";
+    std::string nome_arquivo;
+    std::getline(std::cin, nome_arquivo);
+    if (nome_arquivo.empty()) nome_arquivo = "caso-teste-mc-001-priop.txt";
+    Config config(nome_arquivo);
 
     /* Menu de configuracao pre-simulacao (Requisito 3.1) */
     std::cout << "\nRevise e ajuste a configuracao antes de iniciar." << std::endl;
