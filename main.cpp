@@ -132,6 +132,10 @@ static void alterar_parametros(Config& config) {
     if (q > 0) config.set_quantum(q);
 
     int n = ler_inteiro_com_padrao("Numero de CPUs", config.get_cpus());
+    if (n > 0 && n < 2) {
+        std::cout << "Numero minimo de CPUs e 2. Ajustando para 2." << std::endl;
+        n = 2;
+    }
     if (n > 0) config.set_cpus(n);
 
     // Alpha so e relevante para PRIOPEnv; oferece configuracao apenas se aplicavel
@@ -247,19 +251,120 @@ static void exibir_menu_passo() {
 }
 
 // ============================================================
+// Argumentos de linha de comando (Requisito 4.2)
+//
+// O escalonador ja e plugavel no nivel de codigo (classe abstrata Scheduler +
+// subclasses). Esta secao completa isso no nivel de USO: permite que quem
+// adicionar um novo algoritmo (nova subclasse de Scheduler + novo "else if"
+// em Simulador::Simulador) o selecione direto pela linha de comando, sem
+// precisar editar o arquivo de configuracao nem navegar pelo menu interativo
+// a cada teste. Isso facilita testar/comparar algoritmos em lote (scripts).
+//
+// Uso:
+//   simulador.exe [arquivo_config] [--algoritmo NOME] [--quantum N]
+//                 [--cpus N] [--alpha N] [--help]
+//
+// Qualquer argumento nao reconhecido como flag (nao comeca com '-') e
+// tratado como o caminho do arquivo de configuracao.
+// ============================================================
+struct ArgsCLI {
+    std::string arquivo_config;
+    std::string algoritmo;   // vazio = nao sobrescrever o que vier do arquivo
+    int quantum = -1;        // -1 = nao sobrescrever
+    int cpus    = -1;
+    int alpha   = -1;
+    bool pedir_ajuda = false;
+};
+
+static void imprimir_ajuda_cli() {
+    std::cout << "Uso: simulador [arquivo_config] [opcoes]\n"
+              << "\nOpcoes:\n"
+              << "  --algoritmo, -a NOME   Sobrescreve o algoritmo de escalonamento\n"
+              << "                         (ex.: SRTF, PRIOP, PRIOPEnv, ou um novo\n"
+              << "                         algoritmo cadastrado em Simulador.cpp)\n"
+              << "  --quantum,   -q N      Sobrescreve o quantum\n"
+              << "  --cpus,      -c N      Sobrescreve a quantidade de CPUs (minimo 2)\n"
+              << "  --alpha         N      Sobrescreve o alpha (usado pelo PRIOPEnv)\n"
+              << "  --help,      -h        Exibe esta mensagem e encerra\n"
+              << std::endl;
+}
+
+static ArgsCLI parse_argumentos(int argc, char* argv[]) {
+    ArgsCLI args;
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+
+        auto proximo_valor = [&](const std::string& nome_flag) -> std::string {
+            if (i + 1 >= argc) {
+                std::cout << "Aviso: flag " << nome_flag
+                          << " informada sem valor; sera ignorada." << std::endl;
+                return "";
+            }
+            return argv[++i];
+        };
+
+        if (arg == "--help" || arg == "-h") {
+            args.pedir_ajuda = true;
+        } else if (arg == "--algoritmo" || arg == "-a") {
+            args.algoritmo = proximo_valor(arg);
+        } else if (arg == "--quantum" || arg == "-q") {
+            std::string v = proximo_valor(arg);
+            if (!v.empty()) args.quantum = std::stoi(v);
+        } else if (arg == "--cpus" || arg == "-c") {
+            std::string v = proximo_valor(arg);
+            if (!v.empty()) args.cpus = std::stoi(v);
+        } else if (arg == "--alpha") {
+            std::string v = proximo_valor(arg);
+            if (!v.empty()) args.alpha = std::stoi(v);
+        } else if (!arg.empty() && arg[0] == '-') {
+            std::cout << "Aviso: flag desconhecida \"" << arg << "\" ignorada." << std::endl;
+        } else if (args.arquivo_config.empty()) {
+            args.arquivo_config = arg;
+        }
+    }
+    return args;
+}
+
+// ============================================================
 // main
 // ============================================================
-int main() {
+int main(int argc, char* argv[]) {
     std::cout << "====================================" << std::endl;
     std::cout << "   SIMULADOR DE SO MULTITAREFA      " << std::endl;
     std::cout << "====================================" << std::endl;
 
-    /* Carrega o arquivo de configuracao (Requisito 3.3) */
-    std::cout << "Arquivo de configuracao: ";
-    std::string nome_arquivo;
-    std::getline(std::cin, nome_arquivo);
-    if (nome_arquivo.empty()) nome_arquivo = "caso-teste-mc-001-priop.txt";
+    ArgsCLI args = parse_argumentos(argc, argv);
+    if (args.pedir_ajuda) {
+        imprimir_ajuda_cli();
+        return 0;
+    }
+
+    /* Carrega o arquivo de configuracao (Requisito 3.3).
+     * Se o caminho ja veio pela linha de comando, pula a pergunta interativa
+     * (permite rodar o simulador em lote/scripts sem interacao humana). */
+    std::string nome_arquivo = args.arquivo_config;
+    if (nome_arquivo.empty()) {
+        std::cout << "Arquivo de configuracao: ";
+        std::getline(std::cin, nome_arquivo);
+        if (nome_arquivo.empty()) nome_arquivo = "caso-teste-mc-001-priop.txt";
+    } else {
+        std::cout << "Arquivo de configuracao: " << nome_arquivo
+                   << " (via linha de comando)" << std::endl;
+    }
     Config config(nome_arquivo);
+
+    /* Sobrescreve os parametros informados via linha de comando (Requisito 4.2).
+     * Os setters ja validam/normalizam os valores (ex.: minimo de 2 CPUs,
+     * algoritmo em maiusculas), entao reaproveitamos as mesmas regras da
+     * configuracao via arquivo/menu interativo. */
+    if (!args.algoritmo.empty()) {
+        config.set_algoritmo(args.algoritmo);
+        std::cout << "Algoritmo sobrescrito via linha de comando: "
+                   << config.get_algoritmo() << std::endl;
+    }
+    if (args.quantum > 0) config.set_quantum(args.quantum);
+    if (args.cpus    > 0) config.set_cpus(args.cpus);
+    if (args.alpha   > 0) config.set_alpha(args.alpha);
 
     /* Menu de configuracao pre-simulacao (Requisito 3.1) */
     std::cout << "\nRevise e ajuste a configuracao antes de iniciar." << std::endl;

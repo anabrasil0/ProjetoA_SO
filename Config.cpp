@@ -70,6 +70,16 @@ void Config::parse(const std::string& caminho_arquivo) {
             if (campos.size() >= 2) quantum   = std::stoi(campos[1]);
             if (campos.size() >= 3) qtde_cpus = std::stoi(campos[2]);
             if (campos.size() >= 4) alpha     = std::stoi(campos[3]); // so presente no PRIOPEnv
+
+            // Requisito 1.2: o sistema exige no minimo 2 processadores.
+            // Valores invalidos no arquivo de configuracao sao corrigidos para o minimo,
+            // em vez de deixar o simulador rodar com uma configuracao fora do especificado.
+            if (qtde_cpus < 2) {
+                std::cout << "Aviso: qtde_cpus=" << qtde_cpus
+                          << " e invalido (minimo permitido = 2). Ajustando para 2." << std::endl;
+                qtde_cpus = 2;
+            }
+
             primeira_linha = false;
         } 
         else {
@@ -145,7 +155,7 @@ const std::vector<TaskData>& Config::get_tarefas() const { return tarefas; }
 // ============================================================
 void Config::set_algoritmo(const std::string& alg) { algoritmo = para_maiusculas(alg); }
 void Config::set_quantum(int q)                    { quantum   = q; }
-void Config::set_cpus(int n)                       { qtde_cpus = n; }
+void Config::set_cpus(int n)                       { qtde_cpus = (n < 2) ? 2 : n; } // Requisito 1.2: minimo de 2 CPUs
 void Config::set_alpha(int a)                      { alpha     = a; }
 
 void Config::adicionar_tarefa(const TaskData& td) {
