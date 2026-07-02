@@ -86,22 +86,24 @@ static void print_celula(const EntradaGantt* e) {
         }
 
         case TipoGantt::SUSPENSA_MUTEX:
-            // Fundo vermelho escuro com textura densa (#), para nao depender so
-            // da cor pra diferenciar de SUSPENSA_IO (Req. 2.9). 'L' aparece no
-            // meio quando o motivo da suspensao e uma tentativa de lock.
+            // Fundo preto (Req. 2.1: suspensao = preto), com textura densa (#)
+            // para diferenciar de SUSPENSA_IO so pelo padrao, ja que a cor e a
+            // mesma para as duas (Req. 2.9). 'L' aparece no meio quando o
+            // motivo da suspensao e uma tentativa de lock.
             // Usa apenas ASCII puro (sem UTF-8) porque o console do Windows
             // costuma rodar em um codepage que corrompe caracteres Unicode
             // multi-byte (ex.: bytes de "▓" viram "Ôûæ" ilegivel).
-            std::cout << ansi_bg(139, 0, 0) << FG_BRANCO
+            std::cout << ansi_bg(0, 0, 0) << FG_BRANCO
                       << (e->evento_mutex_lock ? "##L##" : "#####") << RESET;
             break;
 
         case TipoGantt::SUSPENSA_IO:
-            // Fundo azul escuro com textura leve (.), visualmente distinta da
-            // textura densa do mutex mesmo em terminais sem cor (Req. 2.9).
+            // Fundo preto (Req. 2.1), com textura leve (.) — visualmente
+            // distinta da textura densa do mutex mesmo os dois usando a
+            // mesma cor de fundo (Req. 2.9: diferenciacao por padrao).
             // 'I' aparece no meio no primeiro tick da operacao. ASCII puro
             // pelo mesmo motivo do caso acima.
-            std::cout << ansi_bg(0, 0, 139) << FG_BRANCO
+            std::cout << ansi_bg(0, 0, 0) << FG_BRANCO
                       << (e->evento_io ? "..I.." : ".....") << RESET;
             break;
 
@@ -271,10 +273,10 @@ void GanttChart::exibir_terminal(const GanttLog& log) {
     std::cout << "   U   = tarefa liberou mutex neste tick\n";
     std::cout << "   I   = tarefa iniciou operacao de E/S neste tick (Req. 3)\n";
     std::cout << "   ?   = tarefa escolhida por sorteio aleatorio neste tick\n";
-    std::cout << "  " << ansi_bg(139,0,0) << FG_BRANCO << "#####" << RESET
-              << " = tarefa suspensa aguardando mutex - textura densa (Req. 2.9)\n";
-    std::cout << "  " << ansi_bg(0,0,139) << FG_BRANCO << "....." << RESET
-              << " = tarefa suspensa aguardando E/S - textura leve (Req. 2.9)\n";
+    std::cout << "  " << ansi_bg(0,0,0) << FG_BRANCO << "#####" << RESET
+              << " = tarefa suspensa aguardando mutex - preto, textura densa (Req. 2.1 e 2.9)\n";
+    std::cout << "  " << ansi_bg(0,0,0) << FG_BRANCO << "....." << RESET
+              << " = tarefa suspensa aguardando E/S - preto, textura leve (Req. 2.1 e 2.9)\n";
     std::cout << "   fim = tarefa ja finalizada\n";
     std::cout << "       = tarefa ainda nao chegou\n";
 }
@@ -357,21 +359,22 @@ void GanttChart::exportar_svg(const GanttLog& log, const std::string& filename) 
       << "width=\"" << svg_w << "\" height=\"" << svg_h << "\">\n"
       << "<rect width=\"" << svg_w << "\" height=\"" << svg_h << "\" fill=\"white\"/>\n";
 
-    // ----- padroes de hachura (Requisito 2.9) -----
-    // Suspensao por mutex e suspensao por E/S usavam apenas cores diferentes
-    // (vermelho-escuro vs azul-escuro), o que e dificil de distinguir a olho
-    // nu quando os dois aparecem juntos no grafico. Alem da cor, cada estado
-    // agora tem um padrao de listras diagonais proprio (o "quadriculado"
-    // pedido pelo enunciado), reforcando a diferenca por duas vias: cor E
-    // textura.
+    // ----- padroes de preenchimento para suspensao (Req. 2.1 e 2.9) -----
+    // Req. 2.1 pede que QUALQUER suspensao seja mostrada em preto. Req. 2.9
+    // pede que suspensao por mutex e por E/S sejam diferenciaveis. Como as
+    // duas nao podem depender de cores diferentes (2.1 exige preto para
+    // ambas), a diferenciacao e feita so pelo padrao de preenchimento:
+    // mutex usa um quadriculado (o exemplo literal do enunciado) e E/S usa
+    // listras diagonais finas — ambos sobre fundo preto.
     f << "<defs>\n"
-      << "<pattern id=\"hatchMutex\" width=\"8\" height=\"8\" patternUnits=\"userSpaceOnUse\" patternTransform=\"rotate(45)\">\n"
-      << "  <rect width=\"8\" height=\"8\" fill=\"#8B0000\"/>\n"
-      << "  <line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"8\" stroke=\"#ff8080\" stroke-width=\"3\"/>\n"
+      << "<pattern id=\"hatchMutex\" width=\"10\" height=\"10\" patternUnits=\"userSpaceOnUse\">\n"
+      << "  <rect width=\"10\" height=\"10\" fill=\"#000000\"/>\n"
+      << "  <rect x=\"0\" y=\"0\" width=\"5\" height=\"5\" fill=\"#555555\"/>\n"
+      << "  <rect x=\"5\" y=\"5\" width=\"5\" height=\"5\" fill=\"#555555\"/>\n"
       << "</pattern>\n"
       << "<pattern id=\"hatchIO\" width=\"8\" height=\"8\" patternUnits=\"userSpaceOnUse\" patternTransform=\"rotate(45)\">\n"
-      << "  <rect width=\"8\" height=\"8\" fill=\"#00008B\"/>\n"
-      << "  <line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"8\" stroke=\"#80b3ff\" stroke-width=\"3\"/>\n"
+      << "  <rect width=\"8\" height=\"8\" fill=\"#000000\"/>\n"
+      << "  <line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"8\" stroke=\"#aaaaaa\" stroke-width=\"3\"/>\n"
       << "</pattern>\n"
       << "</defs>\n";
 
@@ -682,8 +685,8 @@ void GanttChart::exportar_svg(const GanttLog& log, const std::string& filename) 
     leg("white",   "#bbb", "U",    "tarefa liberou mutex neste tick, executando (Req. 2.8)");
     leg("#00008B", "#111", "I",    "tarefa iniciou operacao de E/S neste tick, executando (Req. 3)");
     leg("white",   "#bbb", "?",    "tarefa escolhida por sorteio aleatorio");
-    leg("url(#hatchMutex)", "#111", "MUT",  "tarefa suspensa aguardando mutex — hachura vermelha (Req. 2.9)");
-    leg("url(#hatchIO)",    "#111", "I/O",  "tarefa suspensa aguardando E/S — hachura azul (Req. 2.9)");
+    leg("url(#hatchMutex)", "#111", "MUT",  "tarefa suspensa aguardando mutex — preto quadriculado (Req. 2.1 e 2.9)");
+    leg("url(#hatchIO)",    "#111", "I/O",  "tarefa suspensa aguardando E/S — preto listrado (Req. 2.1 e 2.9)");
     leg("#ebebeb", "#bbb", "fim",  "tarefa ja finalizada");
 
     f << "</svg>\n";
