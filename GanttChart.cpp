@@ -86,15 +86,23 @@ static void print_celula(const EntradaGantt* e) {
         }
 
         case TipoGantt::SUSPENSA_MUTEX:
-            // Fundo vermelho escuro; 'L' indica que o motivo e espera de mutex (Req. 2.9)
+            // Fundo vermelho escuro com textura densa (#), para nao depender so
+            // da cor pra diferenciar de SUSPENSA_IO (Req. 2.9). 'L' aparece no
+            // meio quando o motivo da suspensao e uma tentativa de lock.
+            // Usa apenas ASCII puro (sem UTF-8) porque o console do Windows
+            // costuma rodar em um codepage que corrompe caracteres Unicode
+            // multi-byte (ex.: bytes de "▓" viram "Ôûæ" ilegivel).
             std::cout << ansi_bg(139, 0, 0) << FG_BRANCO
-                      << (e->evento_mutex_lock ? " MLk " : " MUT ") << RESET;
+                      << (e->evento_mutex_lock ? "##L##" : "#####") << RESET;
             break;
 
         case TipoGantt::SUSPENSA_IO:
-            // Fundo azul escuro; "IO> " indica primeiro tick de E/S (Req. 2.9 e 3)
+            // Fundo azul escuro com textura leve (.), visualmente distinta da
+            // textura densa do mutex mesmo em terminais sem cor (Req. 2.9).
+            // 'I' aparece no meio no primeiro tick da operacao. ASCII puro
+            // pelo mesmo motivo do caso acima.
             std::cout << ansi_bg(0, 0, 139) << FG_BRANCO
-                      << (e->evento_io ? " IO> " : " I/O ") << RESET;
+                      << (e->evento_io ? "..I.." : ".....") << RESET;
             break;
 
         case TipoGantt::FINALIZADA:
@@ -263,10 +271,10 @@ void GanttChart::exibir_terminal(const GanttLog& log) {
     std::cout << "   U   = tarefa liberou mutex neste tick\n";
     std::cout << "   I   = tarefa iniciou operacao de E/S neste tick (Req. 3)\n";
     std::cout << "   ?   = tarefa escolhida por sorteio aleatorio neste tick\n";
-    std::cout << "  " << ansi_bg(139,0,0) << FG_BRANCO << " MUT " << RESET
-              << " = tarefa suspensa aguardando mutex (Req. 2.9)\n";
-    std::cout << "  " << ansi_bg(0,0,139) << FG_BRANCO << " I/O " << RESET
-              << " = tarefa suspensa aguardando E/S (Req. 2.9)\n";
+    std::cout << "  " << ansi_bg(139,0,0) << FG_BRANCO << "#####" << RESET
+              << " = tarefa suspensa aguardando mutex - textura densa (Req. 2.9)\n";
+    std::cout << "  " << ansi_bg(0,0,139) << FG_BRANCO << "....." << RESET
+              << " = tarefa suspensa aguardando E/S - textura leve (Req. 2.9)\n";
     std::cout << "   fim = tarefa ja finalizada\n";
     std::cout << "       = tarefa ainda nao chegou\n";
 }
@@ -318,7 +326,11 @@ void GanttChart::exportar_svg(const GanttLog& log, const std::string& filename) 
     int total_grid_h  = (task_rows_y - grid_top) + task_rows_h;
     int footer_num_y  = grid_top + total_grid_h + HDR_H - 5;
     int legend_top    = grid_top + total_grid_h + HDR_H + 12;
-    int legend_rows   = 1 + n_tasks + 2 + 7; // titulo + cores + OFF/- + itens tarefa (incl. I de E/S)
+    // titulo + cores das tarefas + (OFF, ociosa) + 11 itens de tarefa
+    // (., >>, chegada/inicio, termino, L, U, I, ?, MUT, I/O, fim).
+    // Esse total precisa bater exatamente com o numero de linhas desenhadas
+    // na legenda logo abaixo; um valor menor corta as ultimas linhas do SVG.
+    int legend_rows   = 1 + n_tasks + 2 + 11;
     int svg_w         = MARGIN + LABEL_W + grid_w + MARGIN;
     int svg_h         = legend_top + legend_rows * LEG_ITEM + MARGIN;
 
@@ -344,6 +356,24 @@ void GanttChart::exportar_svg(const GanttLog& log, const std::string& filename) 
       << "<svg xmlns=\"http://www.w3.org/2000/svg\" "
       << "width=\"" << svg_w << "\" height=\"" << svg_h << "\">\n"
       << "<rect width=\"" << svg_w << "\" height=\"" << svg_h << "\" fill=\"white\"/>\n";
+
+    // ----- padroes de hachura (Requisito 2.9) -----
+    // Suspensao por mutex e suspensao por E/S usavam apenas cores diferentes
+    // (vermelho-escuro vs azul-escuro), o que e dificil de distinguir a olho
+    // nu quando os dois aparecem juntos no grafico. Alem da cor, cada estado
+    // agora tem um padrao de listras diagonais proprio (o "quadriculado"
+    // pedido pelo enunciado), reforcando a diferenca por duas vias: cor E
+    // textura.
+    f << "<defs>\n"
+      << "<pattern id=\"hatchMutex\" width=\"8\" height=\"8\" patternUnits=\"userSpaceOnUse\" patternTransform=\"rotate(45)\">\n"
+      << "  <rect width=\"8\" height=\"8\" fill=\"#8B0000\"/>\n"
+      << "  <line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"8\" stroke=\"#ff8080\" stroke-width=\"3\"/>\n"
+      << "</pattern>\n"
+      << "<pattern id=\"hatchIO\" width=\"8\" height=\"8\" patternUnits=\"userSpaceOnUse\" patternTransform=\"rotate(45)\">\n"
+      << "  <rect width=\"8\" height=\"8\" fill=\"#00008B\"/>\n"
+      << "  <line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"8\" stroke=\"#80b3ff\" stroke-width=\"3\"/>\n"
+      << "</pattern>\n"
+      << "</defs>\n";
 
     // ----- titulo -----
     f << "<text x=\"" << MARGIN << "\" y=\"" << (TITLE_H - 8) << "\" "
@@ -493,16 +523,12 @@ void GanttChart::exportar_svg(const GanttLog& log, const std::string& filename) 
             if (e) {
                 switch (e->tipo) {
                     case TipoGantt::EXECUTANDO:
+                        // Label sempre limpo (so "CPUn"); chegada/termino viram
+                        // icones separados nos cantos da celula (ver abaixo),
+                        // em vez de ficarem espremidos dentro do texto principal.
                         fill = "#" + e->cor;
                         text_col = "white";
-                        if (e->evento_chegada && e->evento_termino)
-                            label = ">C" + std::to_string(e->cpu_id + 1) + "!";
-                        else if (e->evento_chegada)
-                            label = ">C" + std::to_string(e->cpu_id + 1);
-                        else if (e->evento_termino)
-                            label = "C" + std::to_string(e->cpu_id + 1) + "!";
-                        else
-                            label = "CPU" + std::to_string(e->cpu_id + 1);
+                        label = "CPU" + std::to_string(e->cpu_id + 1);
                         break;
 
                     case TipoGantt::PRONTA:
@@ -510,13 +536,13 @@ void GanttChart::exportar_svg(const GanttLog& log, const std::string& filename) 
                         label = e->evento_chegada ? ">>" : ".";
                         break;
                     case TipoGantt::SUSPENSA_MUTEX:
-                        // Vermelho escuro — bloqueada por mutex (Req. 2.9)
-                        fill = "#8B0000"; text_col = "white";
+                        // Hachura vermelha — bloqueada por mutex (Req. 2.9)
+                        fill = "url(#hatchMutex)"; text_col = "white";
                         label = e->evento_mutex_lock ? "MLk" : "MUT";
                         break;
                     case TipoGantt::SUSPENSA_IO:
-                        // Azul escuro — bloqueada por E/S (Req. 2.9)
-                        fill = "#00008B"; text_col = "white"; label = "I/O"; break;
+                        // Hachura azul — bloqueada por E/S (Req. 2.9)
+                        fill = "url(#hatchIO)"; text_col = "white"; label = "I/O"; break;
                     case TipoGantt::FINALIZADA:
                         fill = "#ebebeb"; text_col = "#aaa";  label = "fim"; break;
                     default: break;
@@ -534,8 +560,12 @@ void GanttChart::exportar_svg(const GanttLog& log, const std::string& filename) 
                   << "fill=\"" << text_col << "\">" << label << "</text>\n";
             }
 
-            // Marcadores no canto superior direito (Req. 2.8 e 3)
-            if (e && (e->evento_mutex_lock || e->evento_mutex_unlock)) {
+            // Marcadores no canto superior direito (Req. 2.8 e 3).
+            // So fazem sentido em celulas EXECUTANDO: nas celulas SUSPENSA_MUTEX/
+            // SUSPENSA_IO o proprio label ("MLk"/"MUT"/"I/O") ja comunica o motivo,
+            // entao repetir o mesmo icone no canto seria redundante/mais confuso.
+            bool executando = e && e->tipo == TipoGantt::EXECUTANDO;
+            if (executando && (e->evento_mutex_lock || e->evento_mutex_unlock)) {
                 std::string mc = (fill == "white" || fill == "#f5f5f5" || fill == "#ebebeb")
                                  ? "#8B0000" : "white";
                 std::string ml = e->evento_mutex_lock ? "L" : "U";
@@ -544,18 +574,38 @@ void GanttChart::exportar_svg(const GanttLog& log, const std::string& filename) 
                   << "text-anchor=\"end\" fill=\"" << mc << "\">" << ml << "</text>\n";
             }
             // E/S iniciada: pequeno 'I' no canto superior direito (Req. 3)
-            else if (e && e->evento_io) {
+            else if (executando && e->evento_io) {
                 f << "<text x=\"" << (cx + CELL_W - 3) << "\" y=\"" << (cy + 10) << "\" "
                   << "font-family=\"monospace\" font-size=\"10\" font-weight=\"bold\" "
                   << "text-anchor=\"end\" fill=\"white\">I</text>\n";
             }
             // Sorteio: pequeno "?" no canto superior direito (Requisito 4.3)
-            else if (e && e->evento_sorteio) {
+            else if (executando && e->evento_sorteio) {
                 std::string sq = (fill == "white" || fill == "#f5f5f5" || fill == "#ebebeb")
                                  ? "#cc4400" : "white";
                 f << "<text x=\"" << (cx + CELL_W - 3) << "\" y=\"" << (cy + 10) << "\" "
                   << "font-family=\"monospace\" font-size=\"10\" font-weight=\"bold\" "
                   << "text-anchor=\"end\" fill=\"" << sq << "\">?</text>\n";
+            }
+
+            // Chegada: triangulo no canto superior esquerdo (Req. 2.2).
+            // Antes esse marcador ficava espremido dentro do label ("CPU1" virava
+            // ">C1"), agora e um icone separado — mais facil de reconhecer de
+            // relance sem precisar decodificar o texto.
+            if (e && e->evento_chegada) {
+                std::string ac = (fill == "white" || fill == "#f5f5f5" || fill == "#ebebeb")
+                                 ? "#228B22" : "white";
+                f << "<text x=\"" << (cx + 3) << "\" y=\"" << (cy + 10) << "\" "
+                  << "font-family=\"monospace\" font-size=\"10\" font-weight=\"bold\" "
+                  << "text-anchor=\"start\" fill=\"" << ac << "\">▶</text>\n";
+            }
+            // Termino: check no canto inferior esquerdo (Req. 2.2)
+            if (e && e->evento_termino) {
+                std::string tc = (fill == "white" || fill == "#f5f5f5" || fill == "#ebebeb")
+                                 ? "#228B22" : "white";
+                f << "<text x=\"" << (cx + 3) << "\" y=\"" << (cy + CELL_H - 3) << "\" "
+                  << "font-family=\"monospace\" font-size=\"11\" font-weight=\"bold\" "
+                  << "text-anchor=\"start\" fill=\"" << tc << "\">✓</text>\n";
             }
         }
     }
@@ -613,14 +663,27 @@ void GanttChart::exportar_svg(const GanttLog& log, const std::string& filename) 
 
     // Itens de tarefa
     leg("#f5f5f5", "#bbb", ".",    "tarefa aguardando CPU (fila de prontos)");
-    leg("#f5f5f5", "#bbb", ">>",   "tarefa chegou neste tick");
-    leg("white",   "#bbb", "!",    "tarefa termina neste tick (ultimo ciclo)");
-    leg("white",   "#bbb", "L",    "tarefa adquiriu/tentou mutex neste tick (Req. 2.8)");
-    leg("white",   "#bbb", "U",    "tarefa liberou mutex neste tick (Req. 2.8)");
-    leg("#00008B", "#111", "I",    "tarefa iniciou operacao de E/S neste tick (Req. 3)");
+    leg("#f5f5f5", "#bbb", ">>",   "tarefa chegou e ficou aguardando CPU neste tick");
+
+    // Chegada/termino agora sao icones nos cantos da celula, nao mais texto
+    // cravado dentro do label (ex.: ">C1" virava dificil de ler). Desenhados
+    // a parte da lambda leg() para poder usar cor verde e fonte propria.
+    f << "<rect x=\"" << MARGIN << "\" y=\"" << (ly - 14) << "\" width=\"32\" height=\"17\" fill=\"white\" stroke=\"#bbb\"/>\n"
+      << "<text x=\"" << (MARGIN + 16) << "\" y=\"" << ly << "\" font-family=\"monospace\" font-size=\"11\" text-anchor=\"middle\" fill=\"#228B22\">▶</text>\n"
+      << "<text x=\"" << (MARGIN + 38) << "\" y=\"" << ly << "\" font-family=\"monospace\" font-size=\"12\" fill=\"black\">tarefa chegou e ja comecou a executar neste tick</text>\n";
+    ly += LEG_ITEM;
+
+    f << "<rect x=\"" << MARGIN << "\" y=\"" << (ly - 14) << "\" width=\"32\" height=\"17\" fill=\"white\" stroke=\"#bbb\"/>\n"
+      << "<text x=\"" << (MARGIN + 16) << "\" y=\"" << ly << "\" font-family=\"monospace\" font-size=\"12\" text-anchor=\"middle\" fill=\"#228B22\">✓</text>\n"
+      << "<text x=\"" << (MARGIN + 38) << "\" y=\"" << ly << "\" font-family=\"monospace\" font-size=\"12\" fill=\"black\">tarefa termina neste tick (ultimo ciclo de execucao)</text>\n";
+    ly += LEG_ITEM;
+
+    leg("white",   "#bbb", "L",    "tarefa adquiriu/tentou mutex neste tick, executando (Req. 2.8)");
+    leg("white",   "#bbb", "U",    "tarefa liberou mutex neste tick, executando (Req. 2.8)");
+    leg("#00008B", "#111", "I",    "tarefa iniciou operacao de E/S neste tick, executando (Req. 3)");
     leg("white",   "#bbb", "?",    "tarefa escolhida por sorteio aleatorio");
-    leg("#8B0000", "#111", "MUT",  "tarefa suspensa aguardando mutex (Req. 2.9)");
-    leg("#00008B", "#111", "I/O",  "tarefa suspensa aguardando E/S (Req. 2.9)");
+    leg("url(#hatchMutex)", "#111", "MUT",  "tarefa suspensa aguardando mutex — hachura vermelha (Req. 2.9)");
+    leg("url(#hatchIO)",    "#111", "I/O",  "tarefa suspensa aguardando E/S — hachura azul (Req. 2.9)");
     leg("#ebebeb", "#bbb", "fim",  "tarefa ja finalizada");
 
     f << "</svg>\n";

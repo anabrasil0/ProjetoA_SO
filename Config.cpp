@@ -12,6 +12,19 @@ static const int         CPUS_PADRAO      = 2;
 static const int         ALPHA_PADRAO     = 1; // taxa de envelhecimento padrao para PRIOPEnv
 
 // ============================================================
+// remover_prefixo_letras
+// Remove qualquer letra no inicio do campo de ID da tarefa, permitindo que
+// o arquivo de configuracao use tanto "1" quanto "t1"/"T1" para identificar
+// a mesma tarefa. Se nao sobrar nenhum digito, retorna a string original
+// (o std::stoi subsequente lanca excecao e a linha e ignorada normalmente).
+// ============================================================
+static std::string remover_prefixo_letras(const std::string& campo) {
+    size_t i = 0;
+    while (i < campo.size() && std::isalpha((unsigned char)campo[i])) i++;
+    return (i < campo.size()) ? campo.substr(i) : campo;
+}
+
+// ============================================================
 // Construtor
 // ============================================================
 Config::Config(const std::string& caminho_arquivo) {
@@ -90,17 +103,30 @@ void Config::parse(const std::string& caminho_arquivo) {
                 continue;
             }
 
-            TaskData td;
-            td.id = std::stoi(campos[0]);
-            td.cor = campos[1];
-            td.ingresso = std::stoi(campos[2]);
-            td.duracao = std::stoi(campos[3]);
-            td.prioridade = std::stoi(campos[4]);
+            // std::stoi lanca excecao se o campo nao comecar com um numero
+            // (ex.: "t1" em vez de "1"). Sem este try/catch, uma linha mal
+            // formatada derrubaria o programa inteiro em vez de apenas
+            // avisar e ignorar a tarefa invalida.
+            try {
+                TaskData td;
+                // Aceita tanto "1" quanto "t1"/"T1" (prefixo de letras) como o
+                // mesmo ID: remove qualquer letra no inicio do campo antes de
+                // converter, entao so o valor numerico e considerado.
+                td.id = std::stoi(remover_prefixo_letras(campos[0]));
+                td.cor = campos[1];
+                td.ingresso = std::stoi(campos[2]);
+                td.duracao = std::stoi(campos[3]);
+                td.prioridade = std::stoi(campos[4]);
 
-            // lista_eventos é opcional (Projeto B)
-            if (campos.size() >= 6) td.lista_eventos = campos[5];
+                // lista_eventos é opcional (Projeto B)
+                if (campos.size() >= 6) td.lista_eventos = campos[5];
 
-            tarefas.push_back(td);
+                tarefas.push_back(td);
+            } catch (const std::exception&) {
+                std::cout << "Aviso: linha de tarefa ignorada por conter valor numerico invalido: "
+                          << linha << std::endl;
+                continue;
+            }
         }
     }
 

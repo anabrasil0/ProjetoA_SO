@@ -174,6 +174,43 @@ static void config_editar_tarefa(Config& config) {
     std::cout << "Tarefa " << id << " atualizada com sucesso." << std::endl;
 }
 
+/* Adiciona uma nova tarefa pelo menu, sem precisar editar o arquivo de
+ * configuracao ou o codigo (Requisito 3.1: configurar o conjunto de tarefas
+ * antes da simulacao). Usa Config::adicionar_tarefa, que ja existia mas
+ * ainda nao estava exposta em nenhum menu. */
+static void config_adicionar_tarefa(Config& config) {
+    std::cout << "\n--- ADICIONAR TAREFA ---" << std::endl;
+
+    int id;
+    if (!ler_inteiro("ID da nova tarefa: ", id)) return;
+
+    // O ID precisa ser unico (Requisito 1.3: TCB identificado por ID unico)
+    for (const auto& t : config.get_tarefas()) {
+        if (t.id == id) {
+            std::cout << "Erro: ja existe uma tarefa com ID " << id
+                       << ". Use outro ID ou edite a existente." << std::endl;
+            return;
+        }
+    }
+
+    TaskData td;
+    td.id = id;
+
+    std::cout << "Cor (RGB hex, ex: FF0000) [FFFFFF]: ";
+    std::getline(std::cin, td.cor);
+    if (td.cor.empty()) td.cor = "FFFFFF";
+
+    if (!ler_inteiro("Tick de ingresso: ", td.ingresso))   return;
+    if (!ler_inteiro("Duracao (ticks): ",  td.duracao))    return;
+    if (!ler_inteiro("Prioridade: ",       td.prioridade)) return;
+
+    std::cout << "Lista de eventos (Projeto B; ex: ML1:2,MU1:6 ou IO:3-4) [nenhum]: ";
+    std::getline(std::cin, td.lista_eventos);
+
+    config.adicionar_tarefa(td);
+    std::cout << "Tarefa " << id << " adicionada com sucesso." << std::endl;
+}
+
 /* Menu interativo de configuracao pre-simulacao (Requisito 3.1 e 3.2) */
 static void menu_configuracao(Config& config) {
     while (true) {
@@ -182,15 +219,17 @@ static void menu_configuracao(Config& config) {
         std::cout << "  [2] Listar tarefas" << std::endl;
         std::cout << "  [3] Editar tarefa" << std::endl;
         std::cout << "  [4] Iniciar simulacao" << std::endl;
+        std::cout << "  [5] Adicionar tarefa" << std::endl;
 
         int op;
         if (!ler_inteiro("Escolha: ", op)) continue;
 
         switch (op) {
-            case 1: alterar_parametros(config);    break;
-            case 2: listar_config_tarefas(config); break;
-            case 3: config_editar_tarefa(config);  break;
+            case 1: alterar_parametros(config);      break;
+            case 2: listar_config_tarefas(config);   break;
+            case 3: config_editar_tarefa(config);    break;
             case 4: return;
+            case 5: config_adicionar_tarefa(config); break;
             default: std::cout << "Opcao invalida." << std::endl; break;
         }
     }
